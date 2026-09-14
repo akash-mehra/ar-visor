@@ -51,10 +51,15 @@ const h = new FingerCount(2);
 for (const n of [0, 0]) h.update(n);
 assert.equal(h.update(null), 0, 'no hand keeps the last count');
 
-// layerFor: open hand is the first layer, fist the last, whatever the length.
-assert.equal(layerFor(ANATOMY, 5).name, 'skin');
-assert.equal(layerFor(ANATOMY, 3).name, 'muscle');
-assert.equal(layerFor(ANATOMY, 0).name, 'bone');
+// The four poses the layers are keyed to: whole hand, drop the ring and little
+// fingers, drop the middle too, then close the fist.
+assert.equal(layerFor(ANATOMY, 5).name, 'skin', 'all five: bare camera');
+assert.equal(layerFor(ANATOMY, 3).name, 'subcutaneous fat', 'thumb, index, middle');
+assert.equal(layerFor(ANATOMY, 2).name, 'muscle', 'thumb and index');
+assert.equal(layerFor(ANATOMY, 0).name, 'bone', 'fist');
+// The counts in between still land somewhere sensible rather than nowhere.
+assert.equal(layerFor(ANATOMY, 4).name, 'subcutaneous fat');
+assert.equal(layerFor(ANATOMY, 1).name, 'muscle');
 assert.equal(layerFor(ANATOMY, 99).name, 'skin', 'out-of-range count is clamped');
 assert.equal(layerFor(ANATOMY, -1).name, 'bone', 'out-of-range count is clamped');
 
@@ -86,7 +91,7 @@ assert.equal(
 );
 
 // The wipe reveals the incoming layer from the top over the outgoing one.
-const [skin, muscle, bone] = ANATOMY.layers;
+const [skin, , muscle, bone] = ANATOMY.layers;
 const w = new Wipe(100);
 assert.deepEqual(w.update(skin, 0), { from: null, to: skin, k: 1 }, 'first layer does not wipe in');
 assert.deepEqual(w.update(skin, 50), { from: null, to: skin, k: 1 }, 'no change, no wipe');
@@ -108,22 +113,41 @@ step = w2.update(bone, 150);
 assert.equal(step.from, muscle, 'restarts from the layer coming in, not skin');
 assert.equal(step.k, 0, 'and from the top');
 
-// The bone face needs FACE_OVAL chained into an ordered ring before it can be
-// filled; a broken chain draws nothing at all rather than failing.
-const calls: Record<string, number> = {};
-const rec = (k: string) => () => (calls[k] = (calls[k] ?? 0) + 1);
-const ctx = {
-  beginPath: rec('beginPath'), moveTo: rec('moveTo'), lineTo: rec('lineTo'),
-  closePath: rec('closePath'), fill: rec('fill'), stroke: rec('stroke'), arc: rec('arc'),
-  fillStyle: '', strokeStyle: '', lineWidth: 0, lineCap: ''
-} as unknown as CanvasRenderingContext2D;
+// Every drawn layer leans on FACE_OVAL being chained into an ordered ring
+// before it can be clipped or filled; a broken chain draws nothing at all
+// rather than failing, so count what each renderer actually puts on a canvas.
+function spy() {
+  const calls: Record<string, number> = {};
+  const rec = (k: string) => () => (calls[k] = (calls[k] ?? 0) + 1);
+  const ctx = {
+    beginPath: rec('beginPath'), moveTo: rec('moveTo'), lineTo: rec('lineTo'),
+    closePath: rec('closePath'), fill: rec('fill'), stroke: rec('stroke'),
+    arc: rec('arc'), roundRect: rec('roundRect'), quadraticCurveTo: rec('quadraticCurveTo'),
+    clip: rec('clip'), save: rec('save'), restore: rec('restore'),
+    createRadialGradient: () => ({ addColorStop() {} }),
+    fillStyle: '', strokeStyle: '', lineWidth: 0, lineCap: '', lineJoin: '',
+    globalCompositeOperation: ''
+  } as unknown as CanvasRenderingContext2D;
+  return { calls, ctx };
+}
 
 const faceLm: Pt[] = Array.from({ length: 478 }, (_, i) => ({ x: (i % 20) * 5, y: Math.floor(i / 20) * 5 }));
-layerFor(ANATOMY, 0).face!(ctx, faceLm);
-assert.equal(calls.closePath, 3, 'the oval and both eye sockets close into rings');
-assert.equal(calls.fill, 3, 'and all three get filled');
-// A ring that chained only part way still closes and fills, so hold the segment
-// count too: a truncated oval drops ~30 of these.
-assert.ok(calls.lineTo >= 120, `ring chained short, drew only ${calls.lineTo} segments`);
+const handLm: Pt[] = Array.from({ length: 21 }, (_, i) => ({ x: i * 3, y: (i % 5) * 7 }));
+
+for (const l of ANATOMY.layers.slice(1)) {
+  const f = spy();
+  l.face!(f.ctx, faceLm);
+  assert.ok(f.calls.clip >= 1, `${l.name} face must clip to the oval`);
+  assert.ok(f.calls.fill >= 1, `${l.name} face drew no fill`);
+  // A ring chained only part way still closes, so hold the segment count too:
+  // a truncated oval drops ~30 of these.
+  assert.ok(f.calls.lineTo >= 120, `${l.name} ring chained short (${f.calls.lineTo} segments)`);
+  assert.equal(f.calls.save, f.calls.restore, `${l.name} face leaked a canvas state`);
+
+  const h = spy();
+  l.hand!(h.ctx, handLm);
+  assert.ok((h.calls.stroke ?? 0) + (h.calls.fill ?? 0) >= 2, `${l.name} hand drew nothing`);
+  assert.equal(h.calls.save, h.calls.restore, `${l.name} hand leaked a canvas state`);
+}
 
 console.log('gesture + palette checks passed');

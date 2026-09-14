@@ -76,63 +76,410 @@ function path(ctx: CanvasRenderingContext2D, lm: Pt[], idx: number[]) {
   ctx.closePath();
 }
 
+/** Several closed rings as one path, so `clip("evenodd")` cuts the inner ones
+ *  out of the outer — the face oval minus the eyes and the mouth. */
+function rings(ctx: CanvasRenderingContext2D, lm: Pt[], sets: number[][]) {
+  ctx.beginPath();
+  for (const idx of sets) {
+    if (idx.length < 3) continue;
+    idx.forEach((i, n) => (n ? ctx.lineTo(lm[i].x, lm[i].y) : ctx.moveTo(lm[i].x, lm[i].y)));
+    ctx.closePath();
+  }
+}
+
+/** A ring grown about its own centre — the concentric bands that orbicularis
+ *  muscle forms around the eyes and mouth, and the rim of a bony orbit. */
+function grown(lm: Pt[], idx: number[], k: number): Pt[] {
+  const cx = idx.reduce((n, i) => n + lm[i].x, 0) / idx.length;
+  const cy = idx.reduce((n, i) => n + lm[i].y, 0) / idx.length;
+  return idx.map((i) => ({ x: cx + (lm[i].x - cx) * k, y: cy + (lm[i].y - cy) * k }));
+}
+
+function poly(ctx: CanvasRenderingContext2D, pts: Pt[]) {
+  ctx.beginPath();
+  pts.forEach((p, n) => (n ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+  ctx.closePath();
+}
+
+function bounds(lm: Pt[], idx: number[]) {
+  const xs = idx.map((i) => lm[i].x);
+  const ys = idx.map((i) => lm[i].y);
+  return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+}
+
+/** Stroke a shape three times, widest and faintest first, under `lighter`:
+ *  the bloom around a bright structure on a radiograph. No ctx.filter blur,
+ *  which is far too slow for a phone GPU at 30fps. */
+function glow(ctx: CanvasRenderingContext2D, draw: () => void, w: number, rgb: string) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  for (const [mul, a] of [[3.2, 0.1], [1.8, 0.2], [1, 0.85]]) {
+    ctx.lineWidth = w * mul;
+    ctx.strokeStyle = `rgba(${rgb},${a})`;
+    draw();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/**
+ * The tesselation ships as edges; the triangles are its 3-cycles. Derived once
+ * at load, then every frame fills them — a shaded surface reads as tissue in a
+ * way that strokes over the camera never do.
+ */
+function triangles(conns: Conn[]): [number, number, number][] {
+  const adj = new Map<number, Set<number>>();
+  for (const { start, end } of conns) {
+    if (!adj.has(start)) adj.set(start, new Set());
+    if (!adj.has(end)) adj.set(end, new Set());
+    adj.get(start)!.add(end);
+    adj.get(end)!.add(start);
+  }
+  const out: [number, number, number][] = [];
+  for (const [a, na] of adj) {
+    for (const b of na) {
+      if (b <= a) continue;
+      for (const c of adj.get(b)!) {
+        if (c > b && na.has(c)) out.push([a, b, c]);
+      }
+    }
+  }
+  return out;
+}
+
+/** Up and to the left, angled towards the viewer. */
+const LIGHT = { x: -0.35, y: -0.55, z: -0.76 };
+
+/**
+ * Lambert term for one triangle of the mesh, from the landmark depths. Taken
+ * absolute, so the mesh's winding order never flips a facet dark.
+ */
+function lit(lm: Pt[], t: [number, number, number]): number {
+  const a = lm[t[0]];
+  const b = lm[t[1]];
+  const c = lm[t[2]];
+  const ux = b.x - a.x, uy = b.y - a.y, uz = (b.z ?? 0) - (a.z ?? 0);
+  const vx = c.x - a.x, vy = c.y - a.y, vz = (c.z ?? 0) - (a.z ?? 0);
+  const nx = uy * vz - uz * vy;
+  const ny = uz * vx - ux * vz;
+  const nz = ux * vy - uy * vx;
+  const len = Math.hypot(nx, ny, nz) || 1;
+  return Math.abs((nx * LIGHT.x + ny * LIGHT.y + nz * LIGHT.z) / len);
+}
+
+/**
+ * Fill the whole mesh, shading each facet. Each triangle is stroked in its own
+ * colour as well, or antialiasing leaves a hairline grid between the fills.
+ */
+function surface(
+  ctx: CanvasRenderingContext2D,
+  lm: Pt[],
+  colour: (k: number) => string
+) {
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 1;
+  for (const t of TRIS) {
+    const c = colour(lit(lm, t));
+    ctx.fillStyle = c;
+    ctx.strokeStyle = c;
+    ctx.beginPath();
+    ctx.moveTo(lm[t[0]].x, lm[t[0]].y);
+    ctx.lineTo(lm[t[1]].x, lm[t[1]].y);
+    ctx.lineTo(lm[t[2]].x, lm[t[2]].y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
+const mix = (r: number, g: number, b: number, k: number, a = 1) =>
+  `rgba(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)},${a})`;
+
 // Static in the bundle, so chain them once rather than every frame.
+const TRIS = triangles(FaceLandmarker.FACE_LANDMARKS_TESSELATION);
 const OVAL = ring(FaceLandmarker.FACE_LANDMARKS_FACE_OVAL);
+const LIPS = ring(FaceLandmarker.FACE_LANDMARKS_LIPS);
 const EYES = [
   ring(FaceLandmarker.FACE_LANDMARKS_LEFT_EYE),
   ring(FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE)
 ];
+const BROWS = [
+  ring(FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW),
+  ring(FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW)
+];
+/** The face, with the eyes and mouth cut out of it. */
+const OPENINGS = [OVAL, ...EYES, LIPS];
 
 /** Face width, via the outer eye corners of the 468-point mesh. */
 const faceScale = (lm: Pt[]) => span(lm[33], lm[263]) * 2.2;
 
-const faceMuscle: Renderer = (ctx, lm) => {
-  if (lm.length < 468) return;
-  strokeConns(ctx, lm, FaceLandmarker.FACE_LANDMARKS_TESSELATION, faceScale(lm) / 220, 'rgba(150,38,38,0.75)');
-  strokeConns(ctx, lm, FaceLandmarker.FACE_LANDMARKS_CONTOURS, faceScale(lm) / 90, 'rgba(92,16,16,0.9)');
+/**
+ * Face-local coordinates from three landmarks that barely move against the
+ * skull: the two outer eye corners and the point of the chin. `u` runs 0 to 1
+ * across the eye line, `v` 0 at the eyes to 1 at the chin, and the mapping
+ * carries the head's position, scale, roll and some of its yaw. Detail baked
+ * in this space therefore sits still on the face instead of boiling.
+ */
+const faceSpace = (lm: Pt[]) => {
+  const a = lm[33];
+  const b = lm[263];
+  const c = lm[152];
+  return (u: number, v: number): Pt => ({
+    x: a.x + u * (b.x - a.x) + v * (c.x - a.x),
+    y: a.y + u * (b.y - a.y) + v * (c.y - a.y)
+  });
 };
 
-const faceBone: Renderer = (ctx, lm) => {
+/** Deterministic, so every frame bakes the same pattern. */
+function rand(seed: number) {
+  let s = seed >>> 0;
+  return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+}
+
+// ---------------------------------------------------------------- fat -----
+// Adipose tissue is lobular: pale yellow globules packed inside a web of
+// fibrous septa. Positions are baked once in face space and drawn through the
+// live mapping.
+const LOBULES = (() => {
+  const r = rand(20260914);
+  return Array.from({ length: 620 }, () => ({
+    u: -0.55 + r() * 2.1,
+    v: -1.75 + r() * 3.3,
+    s: 0.016 + r() * 0.03,
+    tint: r()
+  }));
+})();
+
+const faceFat: Renderer = (ctx, lm) => {
   if (lm.length < 468 || OVAL.length < 3) return;
+  const at = faceSpace(lm);
   const s = faceScale(lm);
-  ctx.fillStyle = '#e8ddc8';
-  path(ctx, lm, OVAL);
-  ctx.fill();
-  ctx.fillStyle = '#1a1512';
-  for (const eye of EYES) {
-    if (eye.length < 3) continue;
-    path(ctx, lm, eye);
+  ctx.save();
+  rings(ctx, lm, OPENINGS);
+  ctx.clip('evenodd');
+
+  // Shaded adipose base, so the cheeks and brow keep their form.
+  surface(ctx, lm, (k) => mix(232, 196, 108, 0.55 + k * 0.62));
+
+  // Lobules: small globules packed inside a web of fibrous septa.
+  for (const l of LOBULES) {
+    const p = at(l.u, l.v);
+    const r = l.s * s;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = l.tint > 0.7 ? 'rgba(248,226,150,0.5)'
+      : l.tint > 0.4 ? 'rgba(226,190,98,0.45)'
+      : 'rgba(198,158,68,0.45)';
+    ctx.fill();
+    ctx.lineWidth = Math.max(0.6, r * 0.16);
+    ctx.strokeStyle = 'rgba(250,242,214,0.35)'; // septum, pale and fibrous
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(p.x - r * 0.3, p.y - r * 0.32, r * 0.4, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,250,226,0.3)'; // wet sheen
     ctx.fill();
   }
-  strokeConns(ctx, lm, FaceLandmarker.FACE_LANDMARKS_LIPS, s / 70, '#3a322a');
-  strokeConns(ctx, lm, FaceLandmarker.FACE_LANDMARKS_FACE_OVAL, s / 90, '#cbbda2');
+
+  rings(ctx, lm, [OVAL]);
+  ctx.lineWidth = s / 55;
+  ctx.strokeStyle = 'rgba(120,84,20,0.5)';
+  ctx.stroke();
+  ctx.restore();
 };
 
+// ------------------------------------------------------------- muscle -----
+const faceMuscle: Renderer = (ctx, lm) => {
+  if (lm.length < 468 || OVAL.length < 3) return;
+  const s = faceScale(lm);
+  ctx.save();
+  rings(ctx, lm, OPENINGS);
+  ctx.clip('evenodd');
+
+  // Shaded muscle body. Darker and less even than fat, so the form reads.
+  surface(ctx, lm, (k) => mix(158, 38, 34, 0.45 + k * 0.85));
+
+  ctx.lineCap = 'round';
+
+  // Orbicularis oculi and oris are sphincters: concentric bands around the
+  // eye and the mouth, which is exactly what a grown ring gives.
+  for (const idx of [...EYES, LIPS]) {
+    if (idx.length < 3) continue;
+    for (const k of [1.2, 1.5, 1.85, 2.25, 2.7]) {
+      poly(ctx, grown(lm, idx, k));
+      ctx.lineWidth = s / 80;
+      ctx.strokeStyle = 'rgba(120,20,18,0.55)'; // the gap between bands
+      ctx.stroke();
+      ctx.lineWidth = s / 190;
+      ctx.strokeStyle = 'rgba(238,146,136,0.5)';
+      ctx.stroke();
+    }
+  }
+
+  // Tendinous sheet over the crown, paler than the muscle bellies below it.
+  for (const idx of BROWS) {
+    if (idx.length < 2) continue;
+    poly(ctx, grown(lm, idx, 1.15));
+    ctx.lineWidth = s / 60;
+    ctx.strokeStyle = 'rgba(198,74,66,0.5)';
+    ctx.stroke();
+  }
+
+  rings(ctx, lm, [OVAL]);
+  ctx.lineWidth = s / 50;
+  ctx.strokeStyle = 'rgba(72,14,14,0.75)';
+  ctx.stroke();
+  ctx.restore();
+};
+
+// --------------------------------------------------------------- bone -----
+// A radiograph, not a prop skull: the face goes dark and dense tissue lights
+// up through it, brightest where the head is thickest.
+const faceBone: Renderer = (ctx, lm) => {
+  if (lm.length < 468 || OVAL.length < 3) return;
+  const at = faceSpace(lm);
+  const s = faceScale(lm);
+  const BONE = '198,224,255';
+
+  ctx.save();
+  rings(ctx, lm, [OVAL]);
+  ctx.clip();
+  rings(ctx, lm, [OVAL]);
+  ctx.fillStyle = 'rgba(3,7,14,0.96)'; // the film behind everything
+  ctx.fill();
+
+  // Exposure through the head: the shading term stands in for thickness. Kept
+  // dim, so the dense structures below are what actually read.
+  surface(ctx, lm, (k) => `rgba(${BONE},${0.04 + k * 0.16})`);
+
+  // Orbits stay dark: there is no bone in a socket.
+  for (const idx of EYES) {
+    if (idx.length < 3) continue;
+    const socket = grown(lm, idx, 2.3);
+    poly(ctx, socket);
+    ctx.fillStyle = 'rgba(1,3,7,0.9)';
+    ctx.fill();
+    glow(ctx, () => poly(ctx, socket), s / 40, BONE);
+  }
+
+  // Piriform aperture: the pear-shaped hole where the nose was.
+  const nose = [at(0.5, 0.1), at(0.575, 0.42), at(0.545, 0.52), at(0.5, 0.48), at(0.455, 0.52), at(0.425, 0.42)];
+  poly(ctx, nose);
+  ctx.fillStyle = 'rgba(1,3,7,0.92)';
+  ctx.fill();
+  glow(ctx, () => poly(ctx, nose), s / 52, BONE);
+
+  // Supraorbital ridge and the zygomatic arches, the dense edges of the face.
+  for (const idx of BROWS) {
+    if (idx.length >= 2) glow(ctx, () => poly(ctx, grown(lm, idx, 1.1)), s / 50, BONE);
+  }
+  for (const side of [0, 1]) {
+    const p = at(side ? 0.88 : 0.12, 0.14);
+    const q = at(side ? 1.02 : -0.02, 0.0);
+    glow(ctx, () => {
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.quadraticCurveTo((p.x + q.x) / 2, p.y + s * 0.05, q.x, q.y);
+    }, s / 46, BONE);
+  }
+  glow(ctx, () => rings(ctx, lm, [OVAL]), s / 30, BONE);
+
+  // Teeth: two arcs of enamel, the densest thing on the film.
+  if (LIPS.length >= 3) {
+    const m = bounds(lm, LIPS);
+    const w = m.x1 - m.x0;
+    const mid = (m.y0 + m.y1) / 2;
+    for (const row of [-1, 1]) {
+      for (let i = 0; i < 11; i++) {
+        const cx = m.x0 + w * (0.06 + (i / 10) * 0.88);
+        const arc = Math.pow((i - 5) / 5, 2) * s * 0.022 * row;
+        const cy = mid + row * s * 0.032 + arc;
+        const tw = w * 0.045;
+        glow(ctx, () => {
+          ctx.beginPath();
+          ctx.roundRect(cx - tw / 2, cy - s * 0.02, tw, s * 0.04, s * 0.005);
+        }, s / 220, '242,248,255');
+      }
+    }
+  }
+  ctx.restore();
+};
+
+// --------------------------------------------------------------- hands ----
 /** Palm width, via wrist to middle-finger MCP. */
 const handScale = (lm: Pt[]) => span(lm[0], lm[9]);
 
+const handFat: Renderer = (ctx, lm) => {
+  if (lm.length < 21) return;
+  const s = handScale(lm);
+  // One padded pass, then a narrower lighter one: fat over the tendons.
+  strokeConns(ctx, lm, HandLandmarker.HAND_CONNECTIONS, s / 2.6, '#c69a3c');
+  strokeConns(ctx, lm, HandLandmarker.HAND_CONNECTIONS, s / 3.4, '#e7c469');
+  ctx.fillStyle = 'rgba(255,247,214,0.35)';
+  for (const i of [0, 5, 9, 13, 17]) {
+    ctx.beginPath();
+    ctx.arc(lm[i].x - s * 0.05, lm[i].y - s * 0.05, s / 4.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+};
+
 const handMuscle: Renderer = (ctx, lm) => {
   if (lm.length < 21) return;
-  strokeConns(ctx, lm, HandLandmarker.HAND_CONNECTIONS, handScale(lm) / 4, 'rgba(150,38,38,0.95)');
-  strokeConns(ctx, lm, HandLandmarker.HAND_CONNECTIONS, handScale(lm) / 14, 'rgba(206,92,92,0.9)');
+  const s = handScale(lm);
+  strokeConns(ctx, lm, HandLandmarker.HAND_CONNECTIONS, s / 3.4, 'rgba(102,22,22,0.95)');
+  strokeConns(ctx, lm, HandLandmarker.HAND_CONNECTIONS, s / 5, 'rgba(186,56,52,0.95)');
+  strokeConns(ctx, lm, HandLandmarker.HAND_CONNECTIONS, s / 16, 'rgba(240,150,142,0.6)');
+  // Thenar eminence: the muscle bulge at the base of the thumb.
+  ctx.beginPath();
+  ctx.moveTo(lm[0].x, lm[0].y);
+  ctx.quadraticCurveTo(lm[1].x, lm[1].y, lm[2].x, lm[2].y);
+  ctx.quadraticCurveTo(lm[5].x, lm[5].y, lm[0].x, lm[0].y);
+  ctx.fillStyle = 'rgba(150,38,38,0.95)';
+  ctx.fill();
 };
 
 const handBone: Renderer = (ctx, lm) => {
   if (lm.length < 21) return;
   const s = handScale(lm);
-  strokeConns(ctx, lm, HandLandmarker.HAND_CONNECTIONS, s / 11, '#e8ddc8');
-  ctx.fillStyle = '#fbf5e8';
+  const BONE = '196,222,255';
+  // Carpals: one dense mass at the heel of the hand.
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const g = ctx.createRadialGradient(lm[0].x, lm[0].y, 0, lm[0].x, lm[0].y, s * 0.55);
+  g.addColorStop(0, `rgba(${BONE},0.75)`);
+  g.addColorStop(1, `rgba(${BONE},0)`);
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(lm[0].x, lm[0].y, s * 0.55, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  glow(ctx, () => {
+    ctx.beginPath();
+    for (const { start, end } of HandLandmarker.HAND_CONNECTIONS) {
+      ctx.moveTo(lm[start].x, lm[start].y);
+      ctx.lineTo(lm[end].x, lm[end].y);
+    }
+  }, s / 7, BONE);
+
+  // Joints read brighter than the shafts on a real hand film.
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = `rgba(${BONE},0.5)`;
   for (const p of lm) {
     ctx.beginPath();
-    ctx.arc(p.x, p.y, s / 14, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, s / 9, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.restore();
 };
 
 export const ANATOMY: Palette = {
   name: 'anatomy',
   layers: [
     { name: 'skin', face: null, hand: null },
+    { name: 'subcutaneous fat', face: faceFat, hand: handFat },
     { name: 'muscle', face: faceMuscle, hand: handMuscle },
     { name: 'bone', face: faceBone, hand: handBone }
   ]

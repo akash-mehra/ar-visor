@@ -1,4 +1,6 @@
-export type Pt = { x: number; y: number };
+/** `z` is MediaPipe's depth, in roughly the same units as x, where it is
+ *  available: face landmarks carry it, and the layer renderers shade with it. */
+export type Pt = { x: number; y: number; z?: number };
 
 const d2 = (a: Pt, b: Pt) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
 

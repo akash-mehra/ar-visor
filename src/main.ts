@@ -80,7 +80,8 @@ async function initCamera() {
 }
 
 const px = (lm: NormalizedLandmark[]): Pt[] =>
-  lm.map((p) => ({ x: p.x * canvas.width, y: p.y * canvas.height }));
+  // z shares x's scale in MediaPipe's output, so it scales with the width.
+  lm.map((p) => ({ x: p.x * canvas.width, y: p.y * canvas.height, z: p.z * canvas.width }));
 
 function loop() {
   requestAnimationFrame(loop);
