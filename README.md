@@ -1,14 +1,19 @@
 # AR Visor
 
 Client-side AR: MediaPipe face + hand landmarks over a mirrored 640x480 webcam feed on a canvas.
-Framing your face with both hands and bringing them together cycles the overlay skin.
+How many fingers you hold up picks the overlay layer — open hand for the first,
+closed fist for the last. A count has to be held for a few frames before it
+takes effect, so folding from five to one skips straight past the layers between.
+
+The only palette so far is `anatomy`: skin (bare camera), muscle, bone. It is
+drawn procedurally from the landmarks, so it needs no art.
 
 ## Dev
 
 ```bash
 npm install
 npm run dev     # then open the printed LAN URL on the tablet
-npm test        # gesture state-machine check
+npm test        # gesture + palette checks
 ```
 
 The camera needs a secure context: `localhost` works, a plain LAN IP does not.
@@ -22,10 +27,3 @@ or just use the deployed Pages URL (HTTPS).
 3. Settings → Pages → Source: **GitHub Actions**.
 
 Live at `https://<user>.github.io/ar-visor/`.
-
-## Swapping in your PNGs
-
-Drop files in `public/assets/`, then in `src/main.ts` replace the marked
-`ctx.arc` / `ctx.roundRect` blocks with `ctx.drawImage(...)` using the same
-rect arguments. Load images with `import url from '/assets/tobi.png'`-style
-paths respecting `import.meta.env.BASE_URL`.
