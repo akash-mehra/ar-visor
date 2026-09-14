@@ -6,7 +6,7 @@ import {
   type HandLandmarkerResult,
   type NormalizedLandmark
 } from '@mediapipe/tasks-vision';
-import { FingerCount, countExtended, type Pt } from './gesture';
+import { FingerCount, countExtended, frameQuad, type Pt } from './gesture';
 import { ANATOMY, Wipe, layerFor, type Layer } from './palette';
 
 const WASM_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
@@ -110,8 +110,22 @@ function loop() {
 
   // Converted once: a wipe paints both layers, and the face mesh is 478 points.
   const facePx = faceRes.faceLandmarks[0] ? px(faceRes.faceLandmarks[0]) : null;
+  const quad = frameQuad(handsPx);
+  const quadPath = () => {
+    ctx.beginPath();
+    quad!.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.closePath();
+  };
+  // The face shows only through the frame; the hands holding it always draw,
+  // so the frame reads as a window rather than clipping its own edges away.
   const paint = (l: Layer) => {
-    if (l.face && facePx) l.face(ctx, facePx);
+    if (l.face && facePx && quad) {
+      ctx.save();
+      quadPath();
+      ctx.clip();
+      l.face(ctx, facePx);
+      ctx.restore();
+    }
     if (l.hand) for (const h of handsPx) l.hand(ctx, h);
   };
   const band = (l: Layer, top: number, bottom: number) => {
@@ -126,6 +140,14 @@ function loop() {
   ctx.save();
   ctx.setTransform(-1, 0, 0, 1, canvas.width, 0); // mirror frame + overlays together
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  if (quad) {
+    quadPath();
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
   if (from) {
     const y = k * canvas.height;
     band(to, 0, y);

@@ -1,6 +1,6 @@
 // Checks for gesture.ts and palette.ts. Run: npm test
 import assert from 'node:assert/strict';
-import { FingerCount, countExtended, type Pt } from './gesture.ts';
+import { FingerCount, countExtended, frameQuad, type Pt } from './gesture.ts';
 import { ANATOMY, Wipe, layerFor } from './palette.ts';
 
 /**
@@ -57,6 +57,33 @@ assert.equal(layerFor(ANATOMY, 3).name, 'muscle');
 assert.equal(layerFor(ANATOMY, 0).name, 'bone');
 assert.equal(layerFor(ANATOMY, 99).name, 'skin', 'out-of-range count is clamped');
 assert.equal(layerFor(ANATOMY, -1).name, 'bone', 'out-of-range count is clamped');
+
+// The frame spans the inner edges of the two hands and leans with them.
+const boxHand = (x0: number, x1: number, y0: number, y1: number): Pt[] =>
+  Array.from({ length: 21 }, (_, i) => ({ x: i % 2 ? x1 : x0, y: i < 2 ? y0 : y1 }));
+
+assert.deepEqual(
+  frameQuad([boxHand(0, 10, 0, 40), boxHand(60, 80, 10, 50)]),
+  [{ x: 10, y: 0 }, { x: 60, y: 10 }, { x: 60, y: 50 }, { x: 10, y: 40 }],
+  'inner edges, each side carrying its own hand height'
+);
+assert.deepEqual(
+  frameQuad([boxHand(60, 80, 10, 50), boxHand(0, 10, 0, 40)]),
+  frameQuad([boxHand(0, 10, 0, 40), boxHand(60, 80, 10, 50)]),
+  'detection order does not flip the quad'
+);
+assert.equal(frameQuad([boxHand(0, 10, 0, 40)]), null, 'one hand holds no frame');
+assert.equal(frameQuad([]), null, 'no hands, no frame');
+assert.equal(
+  frameQuad([boxHand(0, 100, 0, 40), boxHand(50, 150, 0, 40)]),
+  null,
+  'overlapping hands leave no gap to frame'
+);
+assert.equal(
+  frameQuad([boxHand(0, 10, 0, 40), [{ x: 60, y: 10 }]]),
+  null,
+  'a partial landmark list is not a hand'
+);
 
 // The wipe reveals the incoming layer from the top over the outgoing one.
 const [skin, muscle, bone] = ANATOMY.layers;
