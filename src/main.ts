@@ -27,6 +27,7 @@ const wipe = new Wipe();
 
 let face: FaceLandmarker;
 let hands: HandLandmarker;
+let live = false;
 
 async function initModels() {
   const fileset = await FilesetResolver.forVisionTasks(WASM_CDN);
@@ -63,10 +64,19 @@ async function initCamera() {
       frameRate: { ideal: 30, max: 30 }
     }
   });
+  // Android hands the camera to whatever comes to the foreground, so the track
+  // can end under us; without this the canvas just freezes with no way back.
+  stream.getVideoTracks()[0].addEventListener('ended', () => {
+    live = false;
+    status.textContent = 'Camera stopped';
+    startBtn.hidden = false;
+    startBtn.disabled = false;
+  });
   video.srcObject = stream;
   await video.play();
   canvas.width = video.videoWidth || w;
   canvas.height = video.videoHeight || h;
+  live = true;
 }
 
 const px = (lm: NormalizedLandmark[]): Pt[] =>
@@ -74,7 +84,7 @@ const px = (lm: NormalizedLandmark[]): Pt[] =>
 
 function loop() {
   requestAnimationFrame(loop);
-  if (video.readyState < 2) return;
+  if (!live || video.readyState < 2) return;
 
   const t = performance.now();
   let faceRes: FaceLandmarkerResult;
@@ -126,11 +136,15 @@ function loop() {
   ctx.restore();
 }
 
+let looping = false;
+
 startBtn.addEventListener('click', async () => {
   startBtn.disabled = true;
   try {
-    status.textContent = 'Loading models…';
-    await initModels();
+    if (!face) {
+      status.textContent = 'Loading models…';
+      await initModels();
+    }
     status.textContent = 'Starting camera…';
     await initCamera();
     // Both hands are up and nothing touches the screen, so Android sleeps
@@ -138,10 +152,14 @@ startBtn.addEventListener('click', async () => {
     // ponytail: not re-acquired after the tab is backgrounded; reload to restore.
     navigator.wakeLock?.request('screen').catch(() => {});
     status.textContent = '';
-    startBtn.remove();
-    loop();
+    startBtn.hidden = true;
+    if (!looping) {
+      looping = true;
+      loop();
+    }
   } catch (err) {
     status.textContent = `Failed: ${(err as Error).message}`;
+    startBtn.hidden = false;
     startBtn.disabled = false;
   }
 });
