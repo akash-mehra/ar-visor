@@ -11,8 +11,19 @@ effect shows only through that frame; the hands themselves always draw, so the
 frame reads as a window rather than clipping away its own edges. No frame
 without two hands.
 
-The only palette so far is `anatomy`: skin (bare camera), muscle, bone. It is
-drawn procedurally from the landmarks, so it needs no art.
+The only palette so far is `anatomy`, four layers deep. How many fingers you
+hold up picks one:
+
+| fingers | pose | layer |
+|---|---|---|
+| 5 | whole hand | skin — bare camera |
+| 3 | thumb, index, middle | subcutaneous fat |
+| 2 | thumb and index | muscle |
+| 0 | fist | bone, as a radiograph |
+
+Nothing is drawn from art files. The face layers fill the tesselation's own
+triangles, shaded per facet from the landmark depths, so the tissue keeps the
+form of the head underneath instead of sitting on it like a sticker.
 
 ## Dev
 
