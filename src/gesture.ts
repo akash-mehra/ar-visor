@@ -104,3 +104,19 @@ export class Latch {
     return this.#on;
   }
 }
+
+export type Box = { x: number; y: number; w: number; h: number };
+
+/** Axis-aligned bounds of the frame, clamped to the canvas. */
+export function boundsOf(quad: Pt[], w: number, h: number): Box {
+  const xs = quad.map((p) => p.x);
+  const ys = quad.map((p) => p.y);
+  const x = Math.max(0, Math.floor(Math.min(...xs)));
+  const y = Math.max(0, Math.floor(Math.min(...ys)));
+  return {
+    x,
+    y,
+    w: Math.min(w, Math.ceil(Math.max(...xs))) - x,
+    h: Math.min(h, Math.ceil(Math.max(...ys))) - y
+  };
+}

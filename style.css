@@ -35,6 +35,7 @@ html, body {
 
 #start:disabled { opacity: 0.5; }
 
+#style,
 #palette,
 #mode {
   position: fixed;
@@ -51,6 +52,8 @@ html, body {
 }
 
 #palette { left: auto; right: 12px; }
+#style { left: 50%; transform: translateX(-50%); }
+#style:disabled { opacity: 0.5; }
 
 #status {
   position: fixed;
