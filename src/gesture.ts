@@ -49,3 +49,31 @@ export class FingerCount {
     return this.#count;
   }
 }
+
+/**
+ * The frame the two hands hold: each hand gives the inner edge of its
+ * landmark box, top and bottom, and the four make a quad that leans with
+ * them. Null without two usable hands, or when the hands overlap and leave
+ * no gap between their inner edges.
+ */
+export function frameQuad(hands: Pt[][]): Pt[] | null {
+  const boxes = hands
+    .filter((lm) => lm.length >= 21)
+    .slice(0, 2)
+    .map((lm) => ({
+      lo: Math.min(...lm.map((p) => p.x)),
+      hi: Math.max(...lm.map((p) => p.x)),
+      top: Math.min(...lm.map((p) => p.y)),
+      bottom: Math.max(...lm.map((p) => p.y))
+    }))
+    .sort((a, b) => a.lo - b.lo);
+  if (boxes.length < 2) return null;
+  const [a, b] = boxes;
+  if (b.lo <= a.hi) return null;
+  return [
+    { x: a.hi, y: a.top },
+    { x: b.lo, y: b.top },
+    { x: b.lo, y: b.bottom },
+    { x: a.hi, y: a.bottom }
+  ];
+}

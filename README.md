@@ -5,6 +5,12 @@ How many fingers you hold up picks the overlay layer — open hand for the first
 closed fist for the last. A count has to be held for a few frames before it
 takes effect, so folding from five to one skips straight past the layers between.
 
+Both hands hold a frame between them — each contributes the inner edge of its
+own landmark box, so the frame leans and resizes as the hands move. The face
+effect shows only through that frame; the hands themselves always draw, so the
+frame reads as a window rather than clipping away its own edges. No frame
+without two hands.
+
 The only palette so far is `anatomy`: skin (bare camera), muscle, bone. It is
 drawn procedurally from the landmarks, so it needs no art.
 
@@ -32,7 +38,8 @@ still hot-reload.
 **No cable** — push to `main` and open the Pages URL (HTTPS). Slower to
 iterate, but nothing to set up.
 
-Then: tap **Start camera**, grant the permission, and hold one hand up. The
+Then: tap **Start camera**, grant the permission, and hold both hands up to
+frame your face. The
 status line at the top names the current layer, so you can see the count
 committing even while the layer is `skin` and nothing is drawn. Five fingers
 is `skin`, three is `muscle`, a fist is `bone`; a count has to be held for
