@@ -20,6 +20,8 @@ export type Stylizer = {
   ms: number;
   /** Non-null once something has gone wrong, for the status line. */
   error: string | null;
+  /** Which execution provider started, and the size actually being run. */
+  note: string;
   submit(src: CanvasImageSource, box: Box): void;
 };
 
@@ -30,6 +32,7 @@ export async function loadStylizer(url: string, wasmBase?: string): Promise<Styl
     out: null,
     ms: 0,
     error: null,
+    note: '',
     submit: () => {}
   };
 
@@ -70,24 +73,29 @@ export async function loadStylizer(url: string, wasmBase?: string): Promise<Styl
   const dims = meta && 'shape' in meta ? (meta.shape as readonly (number | string)[]) : undefined;
   // NHWC puts the channel last; anything else is treated as NCHW.
   const layout: Layout = dims?.[3] === 3 ? 'nhwc' : 'nchw';
+  // A model exported at a fixed size rejects every other size, so run at what
+  // it declares and only fall back to SIZE where the axis is dynamic — those
+  // come through as strings like "height" rather than numbers.
+  const declared = dims?.[layout === 'nchw' ? 2 : 1];
+  const size = typeof declared === 'number' && declared > 0 ? declared : SIZE;
 
   const crop = document.createElement('canvas');
-  crop.width = SIZE;
-  crop.height = SIZE;
+  crop.width = size;
+  crop.height = size;
   const cropCtx = crop.getContext('2d', { willReadFrequently: true })!;
   const out = document.createElement('canvas');
-  out.width = SIZE;
-  out.height = SIZE;
+  out.width = size;
+  out.height = size;
   const outCtx = out.getContext('2d')!;
-  const data = new Float32Array(SIZE * SIZE * 3);
+  const data = new Float32Array(size * size * 3);
   let busy = false;
 
   state.submit = (src, box) => {
     if (busy || state.error || box.w < 8 || box.h < 8) return;
     busy = true;
-    cropCtx.drawImage(src, box.x, box.y, box.w, box.h, 0, 0, SIZE, SIZE);
-    const px = cropCtx.getImageData(0, 0, SIZE, SIZE).data;
-    const n = SIZE * SIZE;
+    cropCtx.drawImage(src, box.x, box.y, box.w, box.h, 0, 0, size, size);
+    const px = cropCtx.getImageData(0, 0, size, size).data;
+    const n = size * size;
     // AnimeGANv2 takes and returns [-1, 1].
     for (let i = 0; i < n; i++) {
       const r = px[i * 4] / 127.5 - 1;
@@ -103,13 +111,13 @@ export async function loadStylizer(url: string, wasmBase?: string): Promise<Styl
         data[i * 3 + 2] = b;
       }
     }
-    const shape = layout === 'nchw' ? [1, 3, SIZE, SIZE] : [1, SIZE, SIZE, 3];
+    const shape = layout === 'nchw' ? [1, 3, size, size] : [1, size, size, 3];
     const started = performance.now();
     session
       .run({ [inName]: new ort.Tensor('float32', data, shape) })
       .then((res) => {
         const y = res[outName].data as Float32Array;
-        const img = outCtx.createImageData(SIZE, SIZE);
+        const img = outCtx.createImageData(size, size);
         for (let i = 0; i < n; i++) {
           const [r, g, b] =
             layout === 'nchw' ? [y[i], y[n + i], y[2 * n + i]] : [y[i * 3], y[i * 3 + 1], y[i * 3 + 2]];
@@ -132,6 +140,6 @@ export async function loadStylizer(url: string, wasmBase?: string): Promise<Styl
 
   state.error = null;
   state.ms = 0;
-  (state as { backend?: string }).backend = backend;
+  state.note = `${backend} ${size}px`;
   return state;
 }
