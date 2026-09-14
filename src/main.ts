@@ -7,7 +7,7 @@ import {
   type NormalizedLandmark
 } from '@mediapipe/tasks-vision';
 import { FingerCount, countExtended, type Pt } from './gesture';
-import { ANATOMY, layerFor } from './palette';
+import { ANATOMY, Wipe, layerFor, type Layer } from './palette';
 
 const WASM_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
 const FACE_MODEL =
@@ -23,6 +23,7 @@ const ctx = canvas.getContext('2d', { alpha: false })!;
 
 const palette = ANATOMY;
 const counter = new FingerCount();
+const wipe = new Wipe();
 
 let face: FaceLandmarker;
 let hands: HandLandmarker;
@@ -94,14 +95,34 @@ function loop() {
     -1
   );
   const layer = layerFor(palette, counter.update(lead < 0 ? null : countExtended(handsPx[lead])));
+  const { from, to, k } = wipe.update(layer, t);
   status.textContent = layer.name;
+
+  // Converted once: a wipe paints both layers, and the face mesh is 478 points.
+  const facePx = faceRes.faceLandmarks[0] ? px(faceRes.faceLandmarks[0]) : null;
+  const paint = (l: Layer) => {
+    if (l.face && facePx) l.face(ctx, facePx);
+    if (l.hand) for (const h of handsPx) l.hand(ctx, h);
+  };
+  const band = (l: Layer, top: number, bottom: number) => {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, top, canvas.width, bottom - top);
+    ctx.clip();
+    paint(l);
+    ctx.restore();
+  };
 
   ctx.save();
   ctx.setTransform(-1, 0, 0, 1, canvas.width, 0); // mirror frame + overlays together
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  const faceLm = faceRes.faceLandmarks[0];
-  if (layer.face && faceLm) layer.face(ctx, px(faceLm));
-  if (layer.hand) for (const h of handsPx) layer.hand(ctx, h);
+  if (from) {
+    const y = k * canvas.height;
+    band(to, 0, y);
+    band(from, y, canvas.height);
+  } else {
+    paint(to);
+  }
   ctx.restore();
 }
 
