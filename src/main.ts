@@ -6,8 +6,9 @@ import {
   type HandLandmarkerResult,
   type NormalizedLandmark
 } from '@mediapipe/tasks-vision';
-import { FingerCount, countExtended, frameQuad, type Pt } from './gesture';
-import { ANATOMY, Wipe, layerFor, setMode, setMuscleTexture, type Layer, type Mode } from './palette';
+import { FingerCount, Latch, countExtended, frameQuad, type Pt } from './gesture';
+import { ANATOMY, Wipe, layerFor, setMode, setMuscleTexture, type Layer, type Mode, type Palette } from './palette';
+import { NARUTO, setItachi } from './naruto';
 
 const WASM_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
 const FACE_MODEL =
@@ -19,13 +20,23 @@ const video = document.getElementById('cam') as HTMLVideoElement;
 const canvas = document.getElementById('view') as HTMLCanvasElement;
 const startBtn = document.getElementById('start') as HTMLButtonElement;
 const modeBtn = document.getElementById('mode') as HTMLButtonElement;
+const paletteBtn = document.getElementById('palette') as HTMLButtonElement;
 const status = document.getElementById('status') as HTMLParagraphElement;
 const ctx = canvas.getContext('2d', { alpha: false })!;
 
-const palette = ANATOMY;
+const PALETTES: Palette[] = [ANATOMY, NARUTO];
+let palette = PALETTES[0];
 const counter = new FingerCount();
+// Blink and jaw scores hover, so each gets a trigger rather than a threshold.
+const blink = new Latch(0.5, 0.3);
+const mouth = new Latch(0.4, 0.22);
 let mode: Mode = 'project';
 modeBtn.textContent = `Mode: ${mode}`;
+
+paletteBtn.addEventListener('click', () => {
+  palette = PALETTES[(PALETTES.indexOf(palette) + 1) % PALETTES.length];
+  paletteBtn.textContent = palette.name;
+});
 
 modeBtn.addEventListener('click', () => {
   mode = mode === 'project' ? 'displace' : 'project';
@@ -57,6 +68,22 @@ async function initTexture() {
   }
 }
 
+/** Missing art is not an error: the palette simply draws nothing. */
+async function initArt() {
+  const load = async (name: string) => {
+    const img = new Image();
+    img.src = `${import.meta.env.BASE_URL}assets/naruto/${name}.webp`;
+    await img.decode();
+    return img;
+  };
+  try {
+    const [rest, talk] = await Promise.all([load('itachi-rest'), load('itachi-talk')]);
+    setItachi(rest, talk);
+  } catch {
+    setItachi(null, null);
+  }
+}
+
 async function initModels() {
   const fileset = await FilesetResolver.forVisionTasks(WASM_CDN);
   [face, hands] = await Promise.all([
@@ -64,7 +91,9 @@ async function initModels() {
       baseOptions: { modelAssetPath: FACE_MODEL, delegate: 'GPU' },
       // IMAGE first so the still can be read; switched to VIDEO right after.
       runningMode: 'IMAGE',
-      numFaces: 1
+      numFaces: 1,
+      // Blink and jaw drive the character plates' expression.
+      outputFaceBlendshapes: true
     }),
     HandLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: HAND_MODEL, delegate: 'GPU' },
@@ -73,6 +102,7 @@ async function initModels() {
     })
   ]);
   await initTexture();
+  await initArt();
   await face.setOptions({ runningMode: 'VIDEO' });
 }
 
@@ -136,6 +166,13 @@ function loop() {
     (best, h, i) => (h[0].score > (handRes.handedness[best]?.[0].score ?? 0) ? i : best),
     -1
   );
+  const shapes = faceRes.faceBlendshapes[0]?.categories ?? [];
+  const score = (name: string) => shapes.find((c) => c.categoryName === name)?.score ?? 0;
+  const expr = {
+    blink: blink.update(Math.max(score('eyeBlinkLeft'), score('eyeBlinkRight'))),
+    mouth: mouth.update(score('jawOpen'))
+  };
+
   const layer = layerFor(palette, counter.update(lead < 0 ? null : countExtended(handsPx[lead])));
   const { from, to, k } = wipe.update(layer, t);
   status.textContent = layer.name;
@@ -155,8 +192,8 @@ function loop() {
     ctx.save();
     quadPath();
     ctx.clip();
-    if (l.face && facePx) l.face(ctx, facePx);
-    if (l.hand) for (const h of handsPx) l.hand(ctx, h);
+    if (l.face && facePx) l.face(ctx, facePx, expr);
+    if (l.hand) for (const h of handsPx) l.hand(ctx, h, expr);
     ctx.restore();
   };
   const band = (l: Layer, top: number, bottom: number) => {
@@ -219,6 +256,8 @@ startBtn.addEventListener('click', async () => {
     status.textContent = '';
     startBtn.hidden = true;
     modeBtn.hidden = false;
+    paletteBtn.hidden = false;
+    paletteBtn.textContent = palette.name;
     if (!looping) {
       looping = true;
       loop();

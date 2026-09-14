@@ -1,8 +1,15 @@
 import { FaceLandmarker, HandLandmarker } from '@mediapipe/tasks-vision';
 import type { Pt } from './gesture';
 
+/** What the face is doing, for layers that answer to it. */
+export type Expression = { blink: boolean; mouth: boolean };
+
 /** Landmarks arrive already converted to canvas pixels. */
-export type Renderer = (ctx: CanvasRenderingContext2D, lm: Pt[]) => void;
+export type Renderer = (
+  ctx: CanvasRenderingContext2D,
+  lm: Pt[],
+  expr?: Expression
+) => void;
 export type Layer = { name: string; face: Renderer | null; hand: Renderer | null };
 export type Palette = { name: string; layers: Layer[] };
 

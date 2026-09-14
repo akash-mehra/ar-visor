@@ -82,3 +82,25 @@ export function frameQuad(hands: Pt[][]): Pt[] | null {
   if (b.top.x + b.bottom.x <= a.top.x + a.bottom.x) return null;
   return [a.top, b.top, b.bottom, a.bottom];
 }
+
+/**
+ * Schmitt trigger. A blink score crosses any single threshold several times
+ * on the way through, so one would chatter the art on and off; rising at `hi`
+ * and only falling at `lo` makes the state stick.
+ */
+export class Latch {
+  #hi: number;
+  #lo: number;
+  #on = false;
+
+  constructor(hi = 0.5, lo = 0.3) {
+    this.#hi = hi;
+    this.#lo = lo;
+  }
+
+  update(v: number): boolean {
+    if (v >= this.#hi) this.#on = true;
+    else if (v <= this.#lo) this.#on = false;
+    return this.#on;
+  }
+}
