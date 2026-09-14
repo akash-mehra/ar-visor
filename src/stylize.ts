@@ -48,21 +48,38 @@ export async function loadStylizer(url: string, wasmBase?: string): Promise<Styl
 
   let session: ort.InferenceSession;
   let backend = '';
+
+  // An HTML error page arrives as a perfectly good ArrayBuffer, so the bytes
+  // have to be checked before the runtime is blamed for not loading them.
+  let bytes: Uint8Array;
   try {
-    const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
-    // In order of preference; a device without WebGPU still gets a picture.
-    for (const ep of ['webgpu', 'webgl', 'wasm']) {
-      try {
-        session = await ort.InferenceSession.create(bytes, { executionProviders: [ep] });
-        backend = ep;
-        break;
-      } catch {
-        /* try the next one */
-      }
-    }
-    if (!backend) throw new Error('no execution provider would start');
+    const res = await fetch(url);
+    const type = (res.headers.get('content-type') ?? '?').split(';')[0];
+    const buf = await res.arrayBuffer();
+    const kb = Math.round(buf.byteLength / 1024);
+    if (!res.ok) throw new Error(`HTTP ${res.status} (${type}, ${kb}KB)`);
+    if (buf.byteLength < 100_000) throw new Error(`got ${kb}KB of ${type}, not a model`);
+    bytes = new Uint8Array(buf);
   } catch (e) {
-    state.error = `model: ${(e as Error).message}`;
+    state.error = `fetch: ${(e as Error).message}`;
+    return state;
+  }
+
+  // Each provider's own complaint is the useful part; swallowing them and
+  // reporting "none would start" says nothing about why.
+  const failed: string[] = [];
+  for (const ep of ['webgpu', 'webgl', 'wasm'] as const) {
+    try {
+      session = await ort.InferenceSession.create(bytes, { executionProviders: [ep] });
+      backend = ep;
+      break;
+    } catch (e) {
+      failed.push(`${ep}: ${(e as Error).message.slice(0, 70)}`);
+    }
+  }
+  if (!backend) {
+    state.error = failed[failed.length - 1] ?? 'no provider started';
+    console.error('stylizer providers failed:', failed);
     return state;
   }
 
