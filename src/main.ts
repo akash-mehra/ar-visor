@@ -47,20 +47,25 @@ async function initCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('Camera API unavailable — needs HTTPS or localhost');
   }
-  // 640x480 @30fps keeps the tablet GPU out of thermal throttling.
+  // Match the screen's orientation: a landscape stream on a portrait tablet
+  // gets its sides cropped away by object-fit, and the sides are where the
+  // hands are. ~480 on the short edge either way keeps the GPU out of
+  // thermal throttling.
+  // ponytail: read once at startup, so rotating the tablet needs a reload.
+  const [w, h] = window.innerHeight > window.innerWidth ? [480, 640] : [640, 480];
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
     video: {
       facingMode: 'user',
-      width: { ideal: 640 },
-      height: { ideal: 480 },
+      width: { ideal: w },
+      height: { ideal: h },
       frameRate: { ideal: 30, max: 30 }
     }
   });
   video.srcObject = stream;
   await video.play();
-  canvas.width = video.videoWidth || 640;
-  canvas.height = video.videoHeight || 480;
+  canvas.width = video.videoWidth || w;
+  canvas.height = video.videoHeight || h;
 }
 
 const px = (lm: NormalizedLandmark[]): Pt[] =>
@@ -107,6 +112,10 @@ startBtn.addEventListener('click', async () => {
     await initModels();
     status.textContent = 'Starting camera…';
     await initCamera();
+    // Both hands are up and nothing touches the screen, so Android sleeps
+    // part-way through a test without this.
+    // ponytail: not re-acquired after the tab is backgrounded; reload to restore.
+    navigator.wakeLock?.request('screen').catch(() => {});
     status.textContent = '';
     startBtn.remove();
     loop();
