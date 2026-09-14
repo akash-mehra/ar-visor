@@ -77,6 +77,16 @@ assert.deepEqual(
   frameQuad([boxHand(0, 10, 0, 40), boxHand(60, 80, 10, 50)]),
   'detection order does not flip the quad'
 );
+// The thumb is not an anchor: extended towards the other hand it would drag
+// the edge onto its own tip, and it moves in every pose the layers use.
+const thumbOut = boxHand(0, 10, 0, 40);
+for (const i of [1, 2, 3, 4]) thumbOut[i] = { x: 45, y: 60 };
+assert.deepEqual(
+  frameQuad([thumbOut, boxHand(60, 80, 10, 50)]),
+  frameQuad([boxHand(0, 10, 0, 40), boxHand(60, 80, 10, 50)]),
+  'a thumb reaching past the fingers does not move the frame'
+);
+
 assert.equal(frameQuad([boxHand(0, 10, 0, 40)]), null, 'one hand holds no frame');
 assert.equal(frameQuad([]), null, 'no hands, no frame');
 assert.equal(
