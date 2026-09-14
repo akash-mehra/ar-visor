@@ -35,6 +35,7 @@ html, body {
 
 #start:disabled { opacity: 0.5; }
 
+#palette,
 #mode {
   position: fixed;
   left: 12px;
@@ -48,6 +49,8 @@ html, body {
   background: #fff;
   color: #000;
 }
+
+#palette { left: auto; right: 12px; }
 
 #status {
   position: fixed;

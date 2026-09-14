@@ -1,6 +1,6 @@
 // Checks for gesture.ts and palette.ts. Run: npm test
 import assert from 'node:assert/strict';
-import { FingerCount, countExtended, frameQuad, type Pt } from './gesture.ts';
+import { FingerCount, Latch, countExtended, frameQuad, type Pt } from './gesture.ts';
 import { ANATOMY, Wipe, layerFor, setMode } from './palette.ts';
 
 /**
@@ -193,5 +193,16 @@ assert.ok(
   `displace should close fewer rings than project (${displaced.calls.closePath} vs ${projected.calls.closePath})`
 );
 assert.ok(displaced.calls.fill >= 1, 'displace still fills the face');
+
+// The latch holds through the dead zone: a blink score crosses any single
+// threshold several times on the way, and would chatter the art on and off.
+const latch = new Latch(0.5, 0.3);
+assert.equal(latch.update(0), false, 'starts off');
+assert.equal(latch.update(0.45), false, 'below the rise');
+assert.equal(latch.update(0.55), true, 'rises');
+assert.equal(latch.update(0.4), true, 'holds in the dead zone');
+assert.equal(latch.update(0.31), true, 'still holds just above the fall');
+assert.equal(latch.update(0.3), false, 'falls');
+assert.equal(latch.update(0.4), false, 'and stays off in the dead zone');
 
 console.log('gesture + palette checks passed');
