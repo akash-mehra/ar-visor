@@ -172,9 +172,13 @@ function loop() {
   ctx.setTransform(-1, 0, 0, 1, canvas.width, 0); // mirror frame + overlays together
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   if (quad) {
+    // Displace lays a dark sheet over the room inside the frame so the layer
+    // reads against it — but only when there is a layer to read. Skin is the
+    // bare camera, so darkening it would hide the thing it exists to show.
+    // Either side of a wipe counts, or the sheet would pop mid-transition.
+    const sheeted = mode === 'displace' && Boolean(to.face || from?.face);
     quadPath();
-    // Displace blacks out the room inside the frame, so only the layers read.
-    ctx.fillStyle = mode === 'displace' ? 'rgba(5,7,10,0.96)' : 'rgba(255,255,255,0.08)';
+    ctx.fillStyle = sheeted ? 'rgba(5,7,10,0.55)' : 'rgba(255,255,255,0.08)';
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.5)';
     ctx.lineWidth = 2;
