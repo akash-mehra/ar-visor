@@ -25,11 +25,12 @@ const ctx = canvas.getContext('2d', { alpha: false })!;
 const palette = ANATOMY;
 const counter = new FingerCount();
 let mode: Mode = 'project';
+modeBtn.textContent = `Mode: ${mode}`;
 
 modeBtn.addEventListener('click', () => {
   mode = mode === 'project' ? 'displace' : 'project';
   setMode(mode);
-  modeBtn.textContent = mode === 'project' ? 'Project' : 'Displace';
+  modeBtn.textContent = `Mode: ${mode}`;
 });
 const wipe = new Wipe();
 
@@ -172,7 +173,8 @@ function loop() {
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   if (quad) {
     quadPath();
-    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    // Displace blacks out the room inside the frame, so only the layers read.
+    ctx.fillStyle = mode === 'displace' ? 'rgba(5,7,10,0.96)' : 'rgba(255,255,255,0.08)';
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.5)';
     ctx.lineWidth = 2;

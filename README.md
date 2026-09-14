@@ -16,10 +16,11 @@ Everything is drawn inside that frame and nothing outside it, so the hands
 holding it stay as the camera sees them. No frame without two hands, and then
 nothing is drawn at all.
 
-A button toggles how a layer meets the face. **Project** leaves the eyes and
-mouth open, so the person reads through the tissue and can still emote.
-**Displace** covers the whole face oval, replacing it outright. The bone layer
-is a radiograph either way, so it always covers.
+A button toggles what the frame shows. **Project** keeps the camera: the room
+and the person stay, and the layer is drawn onto the face with the eyes and
+mouth left open so they read through it. **Displace** blacks out the room
+inside the frame and covers the whole face oval, so only the layer reads. The
+bone layer is a radiograph either way, so it always covered the face.
 
 The only palette so far is `anatomy`, four layers deep. How many fingers you
 hold up picks one:
