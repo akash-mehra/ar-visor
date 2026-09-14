@@ -203,7 +203,12 @@ function loop() {
 
   const layer = layerFor(palette, counter.update(lead < 0 ? null : countExtended(handsPx[lead])));
   const { from, to, k } = wipe.update(layer, t);
-  status.textContent = styling && stylizer ? `${layer.name} · ${stylizer.ms}ms` : layer.name;
+  // A run that fails sets the error long after loading, so show it here
+  // rather than only at load — otherwise a broken model just reports 0ms.
+  status.textContent =
+    styling && stylizer
+      ? stylizer.error ?? `${layer.name} · ${stylizer.note} · ${stylizer.ms}ms`
+      : layer.name;
 
   // Converted once: a wipe paints both layers, and the face mesh is 478 points.
   const facePx = faceRes.faceLandmarks[0] ? px(faceRes.faceLandmarks[0]) : null;

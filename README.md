@@ -71,9 +71,11 @@ the button should pay for it. Inference runs off the draw loop: a frame is
 submitted, the loop carries on, and the last result is composited until the
 next lands, so the camera stays live and the styled picture trails it.
 
-Only the frame's bounds are cropped and run, at 256², which is the whole
-reason it might be affordable — a full frame at 512² is a different cost
-entirely. `SIZE` in `src/stylize.ts` is the first dial to turn.
+Only the frame's bounds are cropped and run. A model exported at a fixed size
+rejects every other size, so the size comes off the model where it declares
+one, and `SIZE` in `src/stylize.ts` applies only where the axis is dynamic.
+The status line names the backend and the size actually being run, so it is
+clear which happened.
 
 ## Dev
 
