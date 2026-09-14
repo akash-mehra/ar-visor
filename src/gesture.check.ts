@@ -1,7 +1,7 @@
 // Checks for gesture.ts and palette.ts. Run: npm test
 import assert from 'node:assert/strict';
 import { FingerCount, countExtended, frameQuad, type Pt } from './gesture.ts';
-import { ANATOMY, Wipe, layerFor } from './palette.ts';
+import { ANATOMY, Wipe, layerFor, setMode } from './palette.ts';
 
 /**
  * Synthetic hand, fingers pointing up the -y axis. `up` is
@@ -178,5 +178,20 @@ for (const l of ANATOMY.layers.slice(1)) {
   assert.ok((h.calls.stroke ?? 0) + (h.calls.fill ?? 0) >= 2, `${l.name} hand drew nothing`);
   assert.equal(h.calls.save, h.calls.restore, `${l.name} hand leaked a canvas state`);
 }
+
+// Displace covers the whole oval; project cuts the eyes and mouth back out of
+// it, which is three more closed rings in the clip path.
+const projected = spy();
+setMode('project');
+layerFor(ANATOMY, 3).face!(projected.ctx, faceLm);
+const displaced = spy();
+setMode('displace');
+layerFor(ANATOMY, 3).face!(displaced.ctx, faceLm);
+setMode('project');
+assert.ok(
+  displaced.calls.closePath < projected.calls.closePath,
+  `displace should close fewer rings than project (${displaced.calls.closePath} vs ${projected.calls.closePath})`
+);
+assert.ok(displaced.calls.fill >= 1, 'displace still fills the face');
 
 console.log('gesture + palette checks passed');

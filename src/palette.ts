@@ -277,6 +277,27 @@ const BROWS = [
 /** The face, with the eyes and mouth cut out of it. */
 const OPENINGS = [OVAL, ...EYES, LIPS];
 
+/**
+ * How a layer meets the face underneath. `project` leaves the eyes and mouth
+ * open, so the person reads through the tissue and can still emote.
+ * `displace` covers the whole oval, replacing the face outright.
+ */
+export type Mode = 'project' | 'displace';
+let mode: Mode = 'project';
+export const setMode = (m: Mode) => {
+  mode = m;
+};
+
+function clipFace(ctx: CanvasRenderingContext2D, lm: Pt[]) {
+  if (mode === 'displace') {
+    rings(ctx, lm, [OVAL]);
+    ctx.clip();
+  } else {
+    rings(ctx, lm, OPENINGS);
+    ctx.clip('evenodd');
+  }
+}
+
 /** Face width, via the outer eye corners of the 468-point mesh. */
 const faceScale = (lm: Pt[]) => span(lm[33], lm[263]) * 2.2;
 
@@ -322,8 +343,7 @@ const faceFat: Renderer = (ctx, lm) => {
   const at = faceSpace(lm);
   const s = faceScale(lm);
   ctx.save();
-  rings(ctx, lm, OPENINGS);
-  ctx.clip('evenodd');
+  clipFace(ctx, lm);
 
   // Shaded adipose base, so the cheeks and brow keep their form.
   surface(ctx, lm, (k) => mix(232, 196, 108, 0.55 + k * 0.62));
@@ -359,8 +379,7 @@ const faceMuscle: Renderer = (ctx, lm) => {
   if (lm.length < 468 || OVAL.length < 3) return;
   const s = faceScale(lm);
   ctx.save();
-  rings(ctx, lm, OPENINGS);
-  ctx.clip('evenodd');
+  clipFace(ctx, lm);
 
   // With an anatomical still loaded, paint it through the mesh: real muscle
   // beats anything drawn from primitives. Everything below is the fallback
