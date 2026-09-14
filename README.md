@@ -26,9 +26,17 @@ hold up picks one:
 | 2 | thumb and index | muscle |
 | 0 | fist | bone, as a radiograph |
 
-Nothing is drawn from art files. The face layers fill the tesselation's own
-triangles, shaded per facet from the landmark depths, so the tissue keeps the
-form of the head underneath instead of sitting on it like a sticker.
+The face layers fill the tesselation's own triangles, shaded per facet from
+the landmark depths, so the tissue keeps the form of the head underneath
+instead of sitting on it like a sticker.
+
+A layer can instead be painted from an anatomical still. Drop a front-facing
+one at `public/assets/muscle.jpg` and the muscle layer uses it: at startup the
+landmarker runs over the still once, and the still's own 468 points become the
+texture coordinates, so each mesh triangle is drawn from the matching triangle
+of the art. No table of coordinates to keep in step with the image, and
+swapping the art needs no code change. Without the file, the layer falls back
+to drawing itself.
 
 ## Dev
 

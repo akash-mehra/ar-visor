@@ -194,6 +194,71 @@ function surface(
   }
 }
 
+/**
+ * A photographic layer: an anatomical still, plus where the face mesh's
+ * landmarks sit on it. Detected from the still itself rather than baked as a
+ * table of numbers, so swapping the art needs no other change.
+ */
+export type Texture = { img: CanvasImageSource; uv: Pt[] };
+
+let muscleTexture: Texture | null = null;
+export const setMuscleTexture = (t: Texture | null) => {
+  muscleTexture = t;
+};
+
+/**
+ * Paint one mesh triangle of `tex` onto the same triangle of the live face.
+ * Three point pairs fix an affine exactly, so the whole still is drawn under
+ * that transform and clipped to the destination triangle.
+ */
+function textureTriangle(
+  ctx: CanvasRenderingContext2D,
+  tex: Texture,
+  t: [number, number, number],
+  lm: Pt[]
+) {
+  const s0 = tex.uv[t[0]], s1 = tex.uv[t[1]], s2 = tex.uv[t[2]];
+  const d0 = lm[t[0]], d1 = lm[t[1]], d2 = lm[t[2]];
+  const s1x = s1.x - s0.x, s1y = s1.y - s0.y;
+  const s2x = s2.x - s0.x, s2y = s2.y - s0.y;
+  const det = s1x * s2y - s2x * s1y;
+  if (!det) return;
+  const d1x = d1.x - d0.x, d1y = d1.y - d0.y;
+  const d2x = d2.x - d0.x, d2y = d2.y - d0.y;
+  const a = (d1x * s2y - d2x * s1y) / det;
+  const b = (d1y * s2y - d2y * s1y) / det;
+  const c = (d2x * s1x - d1x * s2x) / det;
+  const d = (d2y * s1x - d1y * s2x) / det;
+
+  ctx.save();
+  ctx.beginPath();
+  // Grown a hair about the centroid: neighbouring clips are antialiased, and
+  // meeting them exactly leaves a hairline of camera showing along every edge.
+  const cx = (d0.x + d1.x + d2.x) / 3;
+  const cy = (d0.y + d1.y + d2.y) / 3;
+  for (let i = 0; i < 3; i++) {
+    const p = [d0, d1, d2][i];
+    const x = cx + (p.x - cx) * 1.06;
+    const y = cy + (p.y - cy) * 1.06;
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  ctx.closePath();
+  ctx.clip();
+  ctx.transform(a, b, c, d, d0.x - a * s0.x - c * s0.y, d0.y - b * s0.x - d * s0.y);
+  ctx.drawImage(tex.img, 0, 0);
+  ctx.restore();
+}
+
+/** Bounding box of the live mesh, to skip triangles the frame cannot show. */
+function meshBounds(lm: Pt[]) {
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const i of OVAL) {
+    x0 = Math.min(x0, lm[i].x); x1 = Math.max(x1, lm[i].x);
+    y0 = Math.min(y0, lm[i].y); y1 = Math.max(y1, lm[i].y);
+  }
+  return { x0, x1, y0, y1 };
+}
+
 const mix = (r: number, g: number, b: number, k: number, a = 1) =>
   `rgba(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)},${a})`;
 
@@ -296,6 +361,19 @@ const faceMuscle: Renderer = (ctx, lm) => {
   ctx.save();
   rings(ctx, lm, OPENINGS);
   ctx.clip('evenodd');
+
+  // With an anatomical still loaded, paint it through the mesh: real muscle
+  // beats anything drawn from primitives. Everything below is the fallback
+  // for when the still is missing or no face was found on it.
+  if (muscleTexture) {
+    for (const t of TRIS) textureTriangle(ctx, muscleTexture, t, lm);
+    rings(ctx, lm, [OVAL]);
+    ctx.lineWidth = s / 50;
+    ctx.strokeStyle = 'rgba(72,14,14,0.75)';
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
 
   // Shaded muscle body. Darker and less even than fat, so the form reads.
   surface(ctx, lm, (k) => mix(158, 38, 34, 0.45 + k * 0.85));
