@@ -53,8 +53,17 @@ export class FingerCount {
 }
 
 /**
+ * Wrist and the four fingers — every landmark except the thumb's. The thumb
+ * abducts sideways and folds across the palm, so an extended one becomes the
+ * innermost point and drags the frame edge onto its tip. It also moves in
+ * every pose the layers are keyed to, which made the frame jump on each
+ * layer change. The palm and fingers alone hold still.
+ */
+const ANCHORS = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+
+/**
  * The frame the two hands hold: each hand gives the inner edge of its
- * landmark box, top and bottom, and the four make a quad that leans with
+ * anchor box, top and bottom, and the four make a quad that leans with
  * them. Null without two usable hands, or when the hands overlap and leave
  * no gap between their inner edges.
  */
@@ -62,11 +71,12 @@ export function frameQuad(hands: Pt[][]): Pt[] | null {
   const boxes = hands
     .filter((lm) => lm.length >= 21)
     .slice(0, 2)
-    .map((lm) => ({
-      lo: Math.min(...lm.map((p) => p.x)),
-      hi: Math.max(...lm.map((p) => p.x)),
-      top: Math.min(...lm.map((p) => p.y)),
-      bottom: Math.max(...lm.map((p) => p.y))
+    .map((lm) => ANCHORS.map((i) => lm[i]))
+    .map((pts) => ({
+      lo: Math.min(...pts.map((p) => p.x)),
+      hi: Math.max(...pts.map((p) => p.x)),
+      top: Math.min(...pts.map((p) => p.y)),
+      bottom: Math.max(...pts.map((p) => p.y))
     }))
     .sort((a, b) => a.lo - b.lo);
   if (boxes.length < 2) return null;

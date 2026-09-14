@@ -6,10 +6,14 @@ closed fist for the last. A count has to be held for a few frames before it
 takes effect, so folding from five to one skips straight past the layers between.
 
 Both hands hold a frame between them — each contributes the inner edge of its
-own landmark box, so the frame leans and resizes as the hands move. The face
-effect shows only through that frame; the hands themselves always draw, so the
-frame reads as a window rather than clipping away its own edges. No frame
-without two hands.
+own anchor box, so the frame leans and resizes as the hands move. The thumb is
+not an anchor: it swings sideways and folds across the palm, so an extended
+thumb would drag the edge onto its tip, and it moves in every pose the layers
+are keyed to. Wrist and the four fingers hold still.
+
+Everything is drawn inside that frame and nothing outside it, so the hands
+holding it stay as the camera sees them. No frame without two hands, and then
+nothing is drawn at all.
 
 The only palette so far is `anatomy`, four layers deep. How many fingers you
 hold up picks one:

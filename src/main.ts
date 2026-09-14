@@ -117,17 +117,16 @@ function loop() {
     quad!.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
     ctx.closePath();
   };
-  // The face shows only through the frame; the hands holding it always draw,
-  // so the frame reads as a window rather than clipping its own edges away.
+  // Everything the palette draws lives inside the frame. The hands hold it
+  // from outside its edges, so they stay as the camera sees them.
   const paint = (l: Layer) => {
-    if (l.face && facePx && quad) {
-      ctx.save();
-      quadPath();
-      ctx.clip();
-      l.face(ctx, facePx);
-      ctx.restore();
-    }
+    if (!quad) return;
+    ctx.save();
+    quadPath();
+    ctx.clip();
+    if (l.face && facePx) l.face(ctx, facePx);
     if (l.hand) for (const h of handsPx) l.hand(ctx, h);
+    ctx.restore();
   };
   const band = (l: Layer, top: number, bottom: number) => {
     ctx.save();
