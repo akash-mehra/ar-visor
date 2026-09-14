@@ -12,7 +12,7 @@ import { NARUTO, setItachi } from './naruto';
 import type { Stylizer } from './stylize';
 
 const STYLE_MODEL =
-  'https://huggingface.co/spaces/akhaliq/animeganv2-onnx/resolve/main/face_paint_512_v2_0.onnx';
+  'https://huggingface.co/akhaliq/AnimeGANv2-ONNX/resolve/main/face_paint_512_v2_0.onnx';
 
 const WASM_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
 const FACE_MODEL =
