@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <title>AR Visor</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <video id="cam" playsinline muted hidden></video>
+    <canvas id="view"></canvas>
+    <button id="start">Start camera</button>
+    <p id="status" role="status"></p>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
