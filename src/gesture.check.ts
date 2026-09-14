@@ -1,7 +1,7 @@
 // Checks for gesture.ts and palette.ts. Run: npm test
 import assert from 'node:assert/strict';
 import { FingerCount, countExtended, type Pt } from './gesture.ts';
-import { ANATOMY, layerFor } from './palette.ts';
+import { ANATOMY, Wipe, layerFor } from './palette.ts';
 
 /**
  * Synthetic hand, fingers pointing up the -y axis. `up` is
@@ -57,6 +57,29 @@ assert.equal(layerFor(ANATOMY, 3).name, 'muscle');
 assert.equal(layerFor(ANATOMY, 0).name, 'bone');
 assert.equal(layerFor(ANATOMY, 99).name, 'skin', 'out-of-range count is clamped');
 assert.equal(layerFor(ANATOMY, -1).name, 'bone', 'out-of-range count is clamped');
+
+// The wipe reveals the incoming layer from the top over the outgoing one.
+const [skin, muscle, bone] = ANATOMY.layers;
+const w = new Wipe(100);
+assert.deepEqual(w.update(skin, 0), { from: null, to: skin, k: 1 }, 'first layer does not wipe in');
+assert.deepEqual(w.update(skin, 50), { from: null, to: skin, k: 1 }, 'no change, no wipe');
+
+let step = w.update(muscle, 100);
+assert.equal(step.from, skin, 'the outgoing layer keeps drawing');
+assert.equal(step.k, 0, 'and covers everything at the start');
+assert.equal(w.update(muscle, 150).k, 0.5, 'halfway');
+assert.deepEqual(w.update(muscle, 200), { from: null, to: muscle, k: 1 }, 'done, outgoing dropped');
+assert.equal(w.update(muscle, 5000).k, 1, 'k stays clamped past the end');
+
+// Swapping mid-wipe restarts against whatever is on screen, not the layer the
+// interrupted wipe started from.
+const w2 = new Wipe(100);
+w2.update(skin, 0);
+w2.update(muscle, 100);
+assert.equal(w2.update(muscle, 150).k, 0.5, 'wipe still running');
+step = w2.update(bone, 150);
+assert.equal(step.from, muscle, 'restarts from the layer coming in, not skin');
+assert.equal(step.k, 0, 'and from the top');
 
 // The bone face needs FACE_OVAL chained into an ordered ring before it can be
 // filled; a broken chain draws nothing at all rather than failing.

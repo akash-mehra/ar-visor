@@ -43,6 +43,10 @@ both hands up — but switching away from the tab drops it, and you need a reloa
 to get it back. Capture orientation is read once at startup too, so rotating
 the tablet means reloading.
 
+If Android hands the camera to another app, the status line reads `Camera
+stopped` and the start button comes back: tap it to pick up again. The models
+stay loaded, so only the camera restarts.
+
 ## Deploy (GitHub Pages)
 
 1. Repo name must match `base` in `vite.config.ts` (currently `/ar-visor/`).

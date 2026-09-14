@@ -14,6 +14,33 @@ export function layerFor(p: Palette, fingers: number): Layer {
   return p.layers[Math.round(((5 - f) / 5) * (p.layers.length - 1))];
 }
 
+/**
+ * The layer swap, as a top-down reveal: the incoming layer is drawn above the
+ * line and the outgoing one below it, so the new face wipes down over the old.
+ * Swapping again mid-wipe restarts from the top against whatever was showing.
+ */
+export class Wipe {
+  #ms: number;
+  #from: Layer | null = null;
+  #to: Layer | null = null;
+  #start = 0;
+
+  constructor(ms = 140) {
+    this.#ms = ms;
+  }
+
+  /** `k` is 1 once the wipe is done, and `from` is then no longer drawn. */
+  update(layer: Layer, now: number): { from: Layer | null; to: Layer; k: number } {
+    if (layer !== this.#to) {
+      this.#from = this.#to;
+      this.#to = layer;
+      this.#start = now;
+    }
+    const k = this.#from ? Math.min(1, Math.max(0, (now - this.#start) / this.#ms)) : 1;
+    return { from: k < 1 ? this.#from : null, to: layer, k };
+  }
+}
+
 const span = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y);
 
 /** Chain {start,end} pairs into one ordered ring of landmark indices. */
