@@ -63,39 +63,58 @@ assert.equal(layerFor(ANATOMY, 1).name, 'muscle');
 assert.equal(layerFor(ANATOMY, 99).name, 'skin', 'out-of-range count is clamped');
 assert.equal(layerFor(ANATOMY, -1).name, 'bone', 'out-of-range count is clamped');
 
-// The frame spans the inner edges of the two hands and leans with them.
-const boxHand = (x0: number, x1: number, y0: number, y1: number): Pt[] =>
-  Array.from({ length: 21 }, (_, i) => ({ x: i % 2 ? x1 : x0, y: i < 2 ? y0 : y1 }));
+// The frame hangs off the thumb tip and index fingertip of each hand — the
+// ends of the "L" — and nothing else on the hand touches it.
+const lHand = (thumb: Pt, index: Pt): Pt[] =>
+  Array.from({ length: 21 }, (_, i) => (i === 4 ? thumb : i === 8 ? index : { x: 999, y: 999 }));
 
 assert.deepEqual(
-  frameQuad([boxHand(0, 10, 0, 40), boxHand(60, 80, 10, 50)]),
-  [{ x: 10, y: 0 }, { x: 60, y: 10 }, { x: 60, y: 50 }, { x: 10, y: 40 }],
-  'inner edges, each side carrying its own hand height'
+  frameQuad([
+    lHand({ x: 10, y: 40 }, { x: 12, y: 0 }),
+    lHand({ x: 62, y: 50 }, { x: 60, y: 10 })
+  ]),
+  [{ x: 12, y: 0 }, { x: 60, y: 10 }, { x: 62, y: 50 }, { x: 10, y: 40 }],
+  'upper anchors along the top, lower along the bottom, each side its own height'
 );
 assert.deepEqual(
-  frameQuad([boxHand(60, 80, 10, 50), boxHand(0, 10, 0, 40)]),
-  frameQuad([boxHand(0, 10, 0, 40), boxHand(60, 80, 10, 50)]),
+  frameQuad([
+    lHand({ x: 62, y: 50 }, { x: 60, y: 10 }),
+    lHand({ x: 10, y: 40 }, { x: 12, y: 0 })
+  ]),
+  frameQuad([
+    lHand({ x: 10, y: 40 }, { x: 12, y: 0 }),
+    lHand({ x: 62, y: 50 }, { x: 60, y: 10 })
+  ]),
   'detection order does not flip the quad'
 );
-// The thumb is not an anchor: extended towards the other hand it would drag
-// the edge onto its own tip, and it moves in every pose the layers use.
-const thumbOut = boxHand(0, 10, 0, 40);
-for (const i of [1, 2, 3, 4]) thumbOut[i] = { x: 45, y: 60 };
+// Whichever of the two is higher leads, so an inverted hand still frames.
 assert.deepEqual(
-  frameQuad([thumbOut, boxHand(60, 80, 10, 50)]),
-  frameQuad([boxHand(0, 10, 0, 40), boxHand(60, 80, 10, 50)]),
-  'a thumb reaching past the fingers does not move the frame'
+  frameQuad([
+    lHand({ x: 12, y: 0 }, { x: 10, y: 40 }),
+    lHand({ x: 60, y: 10 }, { x: 62, y: 50 })
+  ]),
+  [{ x: 12, y: 0 }, { x: 60, y: 10 }, { x: 62, y: 50 }, { x: 10, y: 40 }],
+  'thumb above index frames the same box'
 );
-
-assert.equal(frameQuad([boxHand(0, 10, 0, 40)]), null, 'one hand holds no frame');
+// Every other landmark is ignored: the pose that picks the layer must not
+// drag the frame around.
+const noisy = lHand({ x: 10, y: 40 }, { x: 12, y: 0 });
+noisy[20] = { x: -500, y: -500 };
+noisy[0] = { x: 500, y: 500 };
+assert.deepEqual(
+  frameQuad([noisy, lHand({ x: 62, y: 50 }, { x: 60, y: 10 })]),
+  frameQuad([lHand({ x: 10, y: 40 }, { x: 12, y: 0 }), lHand({ x: 62, y: 50 }, { x: 60, y: 10 })]),
+  'the other fingers and the wrist do not move the frame'
+);
+assert.equal(frameQuad([lHand({ x: 10, y: 40 }, { x: 12, y: 0 })]), null, 'one hand holds no frame');
 assert.equal(frameQuad([]), null, 'no hands, no frame');
 assert.equal(
-  frameQuad([boxHand(0, 100, 0, 40), boxHand(50, 150, 0, 40)]),
+  frameQuad([lHand({ x: 10, y: 40 }, { x: 12, y: 0 }), lHand({ x: 10, y: 50 }, { x: 12, y: 10 })]),
   null,
-  'overlapping hands leave no gap to frame'
+  'hands at the same place leave no width to frame'
 );
 assert.equal(
-  frameQuad([boxHand(0, 10, 0, 40), [{ x: 60, y: 10 }]]),
+  frameQuad([lHand({ x: 10, y: 40 }, { x: 12, y: 0 }), [{ x: 60, y: 10 }]]),
   null,
   'a partial landmark list is not a hand'
 );

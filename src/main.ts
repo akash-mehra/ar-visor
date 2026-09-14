@@ -147,6 +147,13 @@ function loop() {
     ctx.strokeStyle = 'rgba(255,255,255,0.5)';
     ctx.lineWidth = 2;
     ctx.stroke();
+    // Mark the anchors themselves, so a screenshot shows where they landed.
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    for (const p of quad) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, canvas.width / 110, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
   if (from) {
     const y = k * canvas.height;
