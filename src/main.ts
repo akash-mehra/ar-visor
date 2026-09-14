@@ -7,7 +7,7 @@ import {
   type NormalizedLandmark
 } from '@mediapipe/tasks-vision';
 import { FingerCount, countExtended, frameQuad, type Pt } from './gesture';
-import { ANATOMY, Wipe, layerFor, type Layer } from './palette';
+import { ANATOMY, Wipe, layerFor, setMuscleTexture, type Layer } from './palette';
 
 const WASM_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
 const FACE_MODEL =
@@ -29,12 +29,32 @@ let face: FaceLandmarker;
 let hands: HandLandmarker;
 let live = false;
 
+/**
+ * Register the anatomical still by running the landmarker over it: the still's
+ * own 468 points are the texture coordinates, so the art can be swapped
+ * without keeping a table of numbers in step with it. Missing or unreadable
+ * art is not an error — the layer falls back to drawing itself.
+ */
+async function initTexture() {
+  try {
+    const img = new Image();
+    img.src = `${import.meta.env.BASE_URL}assets/muscle.jpg`;
+    await img.decode();
+    const uv = face.detect(img).faceLandmarks[0];
+    if (!uv) throw new Error('no face found on the anatomy still');
+    setMuscleTexture({ img, uv: uv.map((p) => ({ x: p.x * img.width, y: p.y * img.height })) });
+  } catch {
+    setMuscleTexture(null);
+  }
+}
+
 async function initModels() {
   const fileset = await FilesetResolver.forVisionTasks(WASM_CDN);
   [face, hands] = await Promise.all([
     FaceLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: FACE_MODEL, delegate: 'GPU' },
-      runningMode: 'VIDEO',
+      // IMAGE first so the still can be read; switched to VIDEO right after.
+      runningMode: 'IMAGE',
       numFaces: 1
     }),
     HandLandmarker.createFromOptions(fileset, {
@@ -43,6 +63,8 @@ async function initModels() {
       numHands: 2
     })
   ]);
+  await initTexture();
+  await face.setOptions({ runningMode: 'VIDEO' });
 }
 
 async function initCamera() {
