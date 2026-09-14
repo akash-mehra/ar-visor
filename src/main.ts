@@ -7,7 +7,7 @@ import {
   type NormalizedLandmark
 } from '@mediapipe/tasks-vision';
 import { FingerCount, countExtended, frameQuad, type Pt } from './gesture';
-import { ANATOMY, Wipe, layerFor, setMuscleTexture, type Layer } from './palette';
+import { ANATOMY, Wipe, layerFor, setMode, setMuscleTexture, type Layer, type Mode } from './palette';
 
 const WASM_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
 const FACE_MODEL =
@@ -18,11 +18,19 @@ const HAND_MODEL =
 const video = document.getElementById('cam') as HTMLVideoElement;
 const canvas = document.getElementById('view') as HTMLCanvasElement;
 const startBtn = document.getElementById('start') as HTMLButtonElement;
+const modeBtn = document.getElementById('mode') as HTMLButtonElement;
 const status = document.getElementById('status') as HTMLParagraphElement;
 const ctx = canvas.getContext('2d', { alpha: false })!;
 
 const palette = ANATOMY;
 const counter = new FingerCount();
+let mode: Mode = 'project';
+
+modeBtn.addEventListener('click', () => {
+  mode = mode === 'project' ? 'displace' : 'project';
+  setMode(mode);
+  modeBtn.textContent = mode === 'project' ? 'Project' : 'Displace';
+});
 const wipe = new Wipe();
 
 let face: FaceLandmarker;
@@ -204,6 +212,7 @@ startBtn.addEventListener('click', async () => {
     navigator.wakeLock?.request('screen').catch(() => {});
     status.textContent = '';
     startBtn.hidden = true;
+    modeBtn.hidden = false;
     if (!looping) {
       looping = true;
       loop();
