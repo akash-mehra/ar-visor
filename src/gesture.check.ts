@@ -1,6 +1,6 @@
 // Checks for gesture.ts and palette.ts. Run: npm test
 import assert from 'node:assert/strict';
-import { FingerCount, Latch, countExtended, frameQuad, type Pt } from './gesture.ts';
+import { FingerCount, Latch, boundsOf, countExtended, frameQuad, type Pt } from './gesture.ts';
 import { ANATOMY, Wipe, layerFor, setMode } from './palette.ts';
 
 /**
@@ -193,6 +193,19 @@ assert.ok(
   `displace should close fewer rings than project (${displaced.calls.closePath} vs ${projected.calls.closePath})`
 );
 assert.ok(displaced.calls.fill >= 1, 'displace still fills the face');
+
+// The frame's bounds are what the stylizer crops, so they must stay inside
+// the canvas however far outside it a hand reaches.
+assert.deepEqual(
+  boundsOf([{ x: 10, y: 20 }, { x: 60, y: 30 }, { x: 60, y: 90 }, { x: 10, y: 80 }], 200, 200),
+  { x: 10, y: 20, w: 50, h: 70 },
+  'plain bounds of the quad'
+);
+assert.deepEqual(
+  boundsOf([{ x: -40, y: -10 }, { x: 400, y: 5 }, { x: 400, y: 300 }, { x: -40, y: 290 }], 200, 150),
+  { x: 0, y: 0, w: 200, h: 150 },
+  'a quad past every edge clamps to the canvas'
+);
 
 // The latch holds through the dead zone: a blink score crosses any single
 // threshold several times on the way, and would chatter the art on and off.

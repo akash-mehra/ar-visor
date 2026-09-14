@@ -58,6 +58,23 @@ of the art. No table of coordinates to keep in step with the image, and
 swapping the art needs no code change. Without the file, the layer falls back
 to drawing itself.
 
+## The AI filter (spike)
+
+A third button runs a neural stylizer over the framed region, rather than
+drawing anything from landmarks. It is a spike: the point is to find out
+whether per-frame inference is fast enough on the device, so it prints
+milliseconds per inference next to the layer name.
+
+The model and the runtime's own `.wasm` are both fetched at first press, not
+at startup — together they are tens of megabytes, and nobody who never presses
+the button should pay for it. Inference runs off the draw loop: a frame is
+submitted, the loop carries on, and the last result is composited until the
+next lands, so the camera stays live and the styled picture trails it.
+
+Only the frame's bounds are cropped and run, at 256², which is the whole
+reason it might be affordable — a full frame at 512² is a different cost
+entirely. `SIZE` in `src/stylize.ts` is the first dial to turn.
+
 ## Dev
 
 ```bash

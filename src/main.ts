@@ -6,9 +6,13 @@ import {
   type HandLandmarkerResult,
   type NormalizedLandmark
 } from '@mediapipe/tasks-vision';
-import { FingerCount, Latch, countExtended, frameQuad, type Pt } from './gesture';
+import { FingerCount, Latch, boundsOf, countExtended, frameQuad, type Pt } from './gesture';
 import { ANATOMY, Wipe, layerFor, setMode, setMuscleTexture, type Layer, type Mode, type Palette } from './palette';
 import { NARUTO, setItachi } from './naruto';
+import type { Stylizer } from './stylize';
+
+const STYLE_MODEL =
+  'https://huggingface.co/spaces/akhaliq/animeganv2-onnx/resolve/main/face_paint_512_v2_0.onnx';
 
 const WASM_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
 const FACE_MODEL =
@@ -21,6 +25,7 @@ const canvas = document.getElementById('view') as HTMLCanvasElement;
 const startBtn = document.getElementById('start') as HTMLButtonElement;
 const modeBtn = document.getElementById('mode') as HTMLButtonElement;
 const paletteBtn = document.getElementById('palette') as HTMLButtonElement;
+const styleBtn = document.getElementById('style') as HTMLButtonElement;
 const status = document.getElementById('status') as HTMLParagraphElement;
 const ctx = canvas.getContext('2d', { alpha: false })!;
 
@@ -32,6 +37,29 @@ const blink = new Latch(0.5, 0.3);
 const mouth = new Latch(0.4, 0.22);
 let mode: Mode = 'project';
 modeBtn.textContent = `Mode: ${mode}`;
+
+let stylizer: Stylizer | null = null;
+let styling = false;
+
+// Tens of megabytes over the network, so it is fetched on demand rather than
+// at startup — nobody who never presses the button should pay for it.
+styleBtn.addEventListener('click', async () => {
+  if (!stylizer) {
+    styleBtn.disabled = true;
+    styleBtn.textContent = 'AI: loading…';
+    // Dynamic, so the inference runtime is only fetched on demand.
+    const { loadStylizer } = await import('./stylize');
+    stylizer = await loadStylizer(STYLE_MODEL);
+    styleBtn.disabled = false;
+    if (stylizer.error) {
+      styleBtn.textContent = 'AI: failed';
+      status.textContent = stylizer.error;
+      return;
+    }
+  }
+  styling = !styling;
+  styleBtn.textContent = styling ? 'AI: on' : 'AI: off';
+});
 
 paletteBtn.addEventListener('click', () => {
   palette = PALETTES[(PALETTES.indexOf(palette) + 1) % PALETTES.length];
@@ -175,7 +203,7 @@ function loop() {
 
   const layer = layerFor(palette, counter.update(lead < 0 ? null : countExtended(handsPx[lead])));
   const { from, to, k } = wipe.update(layer, t);
-  status.textContent = layer.name;
+  status.textContent = styling && stylizer ? `${layer.name} · ${stylizer.ms}ms` : layer.name;
 
   // Converted once: a wipe paints both layers, and the face mesh is 478 points.
   const facePx = faceRes.faceLandmarks[0] ? px(faceRes.faceLandmarks[0]) : null;
@@ -205,9 +233,23 @@ function loop() {
     ctx.restore();
   };
 
+  if (styling && stylizer && quad) {
+    stylizer.submit(video, boundsOf(quad, canvas.width, canvas.height));
+  }
+
   ctx.save();
   ctx.setTransform(-1, 0, 0, 1, canvas.width, 0); // mirror frame + overlays together
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  // The styled crop goes down before the layers, so overlays still read on top.
+  if (styling && stylizer?.out && quad) {
+    const b = boundsOf(quad, canvas.width, canvas.height);
+    ctx.save();
+    quadPath();
+    ctx.clip();
+    ctx.drawImage(stylizer.out, 0, 0, stylizer.out.width, stylizer.out.height, b.x, b.y, b.w, b.h);
+    ctx.restore();
+  }
   if (quad) {
     // Displace lays a dark sheet over the room inside the frame so the layer
     // reads against it — but only when there is a layer to read. Skin is the
@@ -257,6 +299,7 @@ startBtn.addEventListener('click', async () => {
     startBtn.hidden = true;
     modeBtn.hidden = false;
     paletteBtn.hidden = false;
+    styleBtn.hidden = false;
     paletteBtn.textContent = palette.name;
     if (!looping) {
       looping = true;
