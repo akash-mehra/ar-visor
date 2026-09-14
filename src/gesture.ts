@@ -53,39 +53,32 @@ export class FingerCount {
 }
 
 /**
- * Wrist and the four fingers — every landmark except the thumb's. The thumb
- * abducts sideways and folds across the palm, so an extended one becomes the
- * innermost point and drags the frame edge onto its tip. It also moves in
- * every pose the layers are keyed to, which made the frame jump on each
- * layer change. The palm and fingers alone hold still.
+ * The two corners each hand makes when it frames a shot: the thumb tip and
+ * the index fingertip, the ends of the "L". Nothing else on the hand touches
+ * the frame, so the other fingers are free to carry the pose that picks the
+ * layer, and closing the hand narrows the frame instead of moving it.
  */
-const ANCHORS = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+const THUMB_TIP = 4;
+const INDEX_TIP = 8;
 
 /**
- * The frame the two hands hold: each hand gives the inner edge of its
- * anchor box, top and bottom, and the four make a quad that leans with
- * them. Null without two usable hands, or when the hands overlap and leave
- * no gap between their inner edges.
+ * The frame the two hands hold. Each hand contributes its two anchors as one
+ * edge, upper point first, and the four make a quad that leans and resizes
+ * with them. Null without two usable hands, or when both hands sit at the
+ * same place and leave no width to frame.
  */
 export function frameQuad(hands: Pt[][]): Pt[] | null {
-  const boxes = hands
+  const sides = hands
     .filter((lm) => lm.length >= 21)
     .slice(0, 2)
-    .map((lm) => ANCHORS.map((i) => lm[i]))
-    .map((pts) => ({
-      lo: Math.min(...pts.map((p) => p.x)),
-      hi: Math.max(...pts.map((p) => p.x)),
-      top: Math.min(...pts.map((p) => p.y)),
-      bottom: Math.max(...pts.map((p) => p.y))
-    }))
-    .sort((a, b) => a.lo - b.lo);
-  if (boxes.length < 2) return null;
-  const [a, b] = boxes;
-  if (b.lo <= a.hi) return null;
-  return [
-    { x: a.hi, y: a.top },
-    { x: b.lo, y: b.top },
-    { x: b.lo, y: b.bottom },
-    { x: a.hi, y: a.bottom }
-  ];
+    .map((lm) => {
+      const a = lm[THUMB_TIP];
+      const b = lm[INDEX_TIP];
+      return a.y <= b.y ? { top: a, bottom: b } : { top: b, bottom: a };
+    })
+    .sort((p, q) => p.top.x + p.bottom.x - (q.top.x + q.bottom.x));
+  if (sides.length < 2) return null;
+  const [a, b] = sides;
+  if (b.top.x + b.bottom.x <= a.top.x + a.bottom.x) return null;
+  return [a.top, b.top, b.bottom, a.bottom];
 }

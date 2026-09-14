@@ -5,11 +5,12 @@ How many fingers you hold up picks the overlay layer — open hand for the first
 closed fist for the last. A count has to be held for a few frames before it
 takes effect, so folding from five to one skips straight past the layers between.
 
-Both hands hold a frame between them — each contributes the inner edge of its
-own anchor box, so the frame leans and resizes as the hands move. The thumb is
-not an anchor: it swings sideways and folds across the palm, so an extended
-thumb would drag the edge onto its tip, and it moves in every pose the layers
-are keyed to. Wrist and the four fingers hold still.
+Both hands hold a frame between them, the way you frame a shot: make an "L"
+with each hand and the four corners are the thumb tips and the index
+fingertips. Nothing else on the hand touches the frame, so the other fingers
+are free to carry the pose that picks the layer, and closing a hand narrows
+the frame rather than moving it. Each corner is marked with a dot, so a
+screenshot shows where the anchors landed.
 
 Everything is drawn inside that frame and nothing outside it, so the hands
 holding it stay as the camera sees them. No frame without two hands, and then
