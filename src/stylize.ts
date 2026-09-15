@@ -127,8 +127,6 @@ export async function loadStylizer(
   const outCtx = out.getContext('2d')!;
   const data = new Float32Array(size * size * 3);
   let busy = false;
-  // Whether the output is [-1, 1] or [0, 1]; latched off the first frame.
-  let signed: boolean | null = null;
 
   state.submit = (src, box) => {
     if (busy || state.error || box.w < 8 || box.h < 8) return;
@@ -161,29 +159,30 @@ export async function loadStylizer(
       .run({ [inName]: new ort.Tensor('float32', data, shape) })
       .then((res) => {
         const y = res[outName].data as Float32Array;
-        // Upstream AnimeGANv2 emits [-1, 1] and face2paint denormalises it;
-        // this export bakes that in and hands back [0, 1] already. Reading it
-        // as [-1, 1] folded the whole picture into the top half of the range,
-        // which is the cream wash. Latched off the first frame rather than
-        // hardcoded, because the model URL is the thing most likely to change
-        // and a stylised frame always has something dark in it.
+        // [-1, 1], measured: this exact file run under onnxruntime's CPU and
+        // wasm backends returns -0.998…0.990 on a face.
         const outRange = range(y);
-        if (signed === null) signed = outRange[0] < -0.01;
-        const shift = signed ? 1 : 0;
-        const scale = signed ? 127.5 : 255;
         const img = outCtx.createImageData(size, size);
         for (let i = 0; i < n; i++) {
           const [r, g, b] =
             layout === 'nchw' ? [y[i], y[n + i], y[2 * n + i]] : [y[i * 3], y[i * 3 + 1], y[i * 3 + 2]];
-          img.data[i * 4] = (r + shift) * scale;
-          img.data[i * 4 + 1] = (g + shift) * scale;
-          img.data[i * 4 + 2] = (b + shift) * scale;
+          img.data[i * 4] = (r + 1) * 127.5;
+          img.data[i * 4 + 1] = (g + 1) * 127.5;
+          img.data[i * 4 + 2] = (b + 1) * 127.5;
           img.data[i * 4 + 3] = 255;
         }
         outCtx.putImageData(img, 0, 0);
         state.out = out;
         state.ms = Math.round(performance.now() - started);
-        state.note = `${backend} ${size}px · in ${inRange} · out ${show(outRange)}`;
+        // A provider that miscomputes an op still returns a well-formed
+        // tensor, and a flat one renders as a plausible-looking wash rather
+        // than as an error. WebGPU does exactly that with this model — its 24
+        // InstanceNormalization nodes each normalise a (1, 1, 4718592) tensor,
+        // which it gets wrong — so say so instead of drawing the lie.
+        const flat = outRange[1] - outRange[0] < 1;
+        state.note =
+          `${backend} ${size}px · in ${inRange} · out ${show(outRange)}` +
+          (flat ? ' · FLAT, provider is wrong' : '');
       })
       .catch((e: Error) => {
         state.error = `run: ${e.message}`;
