@@ -27,16 +27,18 @@ export type Stylizer = {
 
 type Layout = 'nchw' | 'nhwc';
 
-/** Both ends of a tensor, for the status line. */
-function range(a: Float32Array): string {
+/** Both ends of a tensor. */
+function range(a: Float32Array): [number, number] {
   let lo = Infinity;
   let hi = -Infinity;
   for (const v of a) {
     if (v < lo) lo = v;
     if (v > hi) hi = v;
   }
-  return `${lo.toFixed(2)}…${hi.toFixed(2)}`;
+  return [lo, hi];
 }
+
+const show = ([lo, hi]: [number, number]) => `${lo.toFixed(2)}…${hi.toFixed(2)}`;
 
 export async function loadStylizer(
   url: string,
@@ -125,6 +127,8 @@ export async function loadStylizer(
   const outCtx = out.getContext('2d')!;
   const data = new Float32Array(size * size * 3);
   let busy = false;
+  // Whether the output is [-1, 1] or [0, 1]; latched off the first frame.
+  let signed: boolean | null = null;
 
   state.submit = (src, box) => {
     if (busy || state.error || box.w < 8 || box.h < 8) return;
@@ -132,7 +136,7 @@ export async function loadStylizer(
     cropCtx.drawImage(src, box.x, box.y, box.w, box.h, 0, 0, size, size);
     const px = cropCtx.getImageData(0, 0, size, size).data;
     const n = size * size;
-    // AnimeGANv2 takes and returns [-1, 1].
+    // AnimeGANv2 takes [-1, 1].
     for (let i = 0; i < n; i++) {
       const r = px[i * 4] / 127.5 - 1;
       const g = px[i * 4 + 1] / 127.5 - 1;
@@ -151,25 +155,35 @@ export async function loadStylizer(
     // A flat output over a live input is a broken kernel; a flat output over a
     // flat input is a broken crop. The two want opposite fixes, so both ends
     // of both tensors go on the status line rather than being guessed at.
-    const inRange = range(data);
+    const inRange = show(range(data));
     const started = performance.now();
     session
       .run({ [inName]: new ort.Tensor('float32', data, shape) })
       .then((res) => {
         const y = res[outName].data as Float32Array;
+        // Upstream AnimeGANv2 emits [-1, 1] and face2paint denormalises it;
+        // this export bakes that in and hands back [0, 1] already. Reading it
+        // as [-1, 1] folded the whole picture into the top half of the range,
+        // which is the cream wash. Latched off the first frame rather than
+        // hardcoded, because the model URL is the thing most likely to change
+        // and a stylised frame always has something dark in it.
+        const outRange = range(y);
+        if (signed === null) signed = outRange[0] < -0.01;
+        const shift = signed ? 1 : 0;
+        const scale = signed ? 127.5 : 255;
         const img = outCtx.createImageData(size, size);
         for (let i = 0; i < n; i++) {
           const [r, g, b] =
             layout === 'nchw' ? [y[i], y[n + i], y[2 * n + i]] : [y[i * 3], y[i * 3 + 1], y[i * 3 + 2]];
-          img.data[i * 4] = (r + 1) * 127.5;
-          img.data[i * 4 + 1] = (g + 1) * 127.5;
-          img.data[i * 4 + 2] = (b + 1) * 127.5;
+          img.data[i * 4] = (r + shift) * scale;
+          img.data[i * 4 + 1] = (g + shift) * scale;
+          img.data[i * 4 + 2] = (b + shift) * scale;
           img.data[i * 4 + 3] = 255;
         }
         outCtx.putImageData(img, 0, 0);
         state.out = out;
         state.ms = Math.round(performance.now() - started);
-        state.note = `${backend} ${size}px · in ${inRange} · out ${range(y)}`;
+        state.note = `${backend} ${size}px · in ${inRange} · out ${show(outRange)}`;
       })
       .catch((e: Error) => {
         state.error = `run: ${e.message}`;
