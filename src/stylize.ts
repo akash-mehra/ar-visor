@@ -27,7 +27,22 @@ export type Stylizer = {
 
 type Layout = 'nchw' | 'nhwc';
 
-export async function loadStylizer(url: string, wasmBase?: string): Promise<Stylizer> {
+/** Both ends of a tensor, for the status line. */
+function range(a: Float32Array): string {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const v of a) {
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  return `${lo.toFixed(2)}…${hi.toFixed(2)}`;
+}
+
+export async function loadStylizer(
+  url: string,
+  wasmBase?: string,
+  only?: string | null
+): Promise<Stylizer> {
   const state: Stylizer = {
     out: null,
     ms: 0,
@@ -68,7 +83,11 @@ export async function loadStylizer(url: string, wasmBase?: string): Promise<Styl
   // Each provider's own complaint is the useful part; swallowing them and
   // reporting "none would start" says nothing about why.
   const failed: string[] = [];
-  for (const ep of ['webgpu', 'webgl', 'wasm'] as const) {
+  // WebGPU is both the fastest provider and the least mature one: a kernel it
+  // gets wrong still returns a perfectly well-formed tensor. `?ep=wasm` pins
+  // the reference implementation, which is the only way to tell a bad kernel
+  // apart from a bad input without a second device to compare against.
+  for (const ep of only ? [only] : ['webgpu', 'webgl', 'wasm']) {
     try {
       session = await ort.InferenceSession.create(bytes, { executionProviders: [ep] });
       backend = ep;
@@ -129,6 +148,10 @@ export async function loadStylizer(url: string, wasmBase?: string): Promise<Styl
       }
     }
     const shape = layout === 'nchw' ? [1, 3, size, size] : [1, size, size, 3];
+    // A flat output over a live input is a broken kernel; a flat output over a
+    // flat input is a broken crop. The two want opposite fixes, so both ends
+    // of both tensors go on the status line rather than being guessed at.
+    const inRange = range(data);
     const started = performance.now();
     session
       .run({ [inName]: new ort.Tensor('float32', data, shape) })
@@ -146,6 +169,7 @@ export async function loadStylizer(url: string, wasmBase?: string): Promise<Styl
         outCtx.putImageData(img, 0, 0);
         state.out = out;
         state.ms = Math.round(performance.now() - started);
+        state.note = `${backend} ${size}px · in ${inRange} · out ${range(y)}`;
       })
       .catch((e: Error) => {
         state.error = `run: ${e.message}`;
