@@ -49,7 +49,9 @@ styleBtn.addEventListener('click', async () => {
     styleBtn.textContent = 'AI: loading…';
     // Dynamic, so the inference runtime is only fetched on demand.
     const { loadStylizer } = await import('./stylize');
-    stylizer = await loadStylizer(STYLE_MODEL);
+    // ?ep=wasm|webgl pins one provider; without it the fast one wins.
+    const ep = new URLSearchParams(location.search).get('ep');
+    stylizer = await loadStylizer(STYLE_MODEL, undefined, ep);
     styleBtn.disabled = false;
     if (stylizer.error) {
       styleBtn.textContent = 'AI: failed';
