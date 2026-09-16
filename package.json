@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
-    "test": "node --experimental-strip-types src/gesture.check.ts",
+    "test": "node --experimental-strip-types src/gesture.check.ts && python3 train/student_check.py",
     "preview": "vite preview --host"
   },
   "dependencies": {
