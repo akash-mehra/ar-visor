@@ -63,12 +63,13 @@ assert.equal(h.update(null), 0, 'no hand keeps the last count');
 // The four poses the layers are keyed to: whole hand, drop the ring and little
 // fingers, drop the middle too, then close the fist.
 assert.equal(layerFor(ANATOMY, 5).name, 'skin', 'all five: bare camera');
-assert.equal(layerFor(ANATOMY, 3).name, 'subcutaneous fat', 'thumb, index, middle');
-assert.equal(layerFor(ANATOMY, 2).name, 'muscle', 'thumb and index');
+assert.equal(layerFor(ANATOMY, 3).name, 'muscle', 'thumb, index, middle');
+assert.equal(layerFor(ANATOMY, 2).name, 'bone', 'thumb and index');
 assert.equal(layerFor(ANATOMY, 0).name, 'bone', 'fist');
 // The counts in between still land somewhere sensible rather than nowhere.
-assert.equal(layerFor(ANATOMY, 4).name, 'subcutaneous fat');
-assert.equal(layerFor(ANATOMY, 1).name, 'muscle');
+assert.equal(layerFor(ANATOMY, 4).name, 'muscle');
+assert.equal(layerFor(ANATOMY, 1).name, 'bone');
+assert.equal(layerFor(ANATOMY, 2.4).name, 'bone', 'a fractional count still lands on a layer');
 assert.equal(layerFor(ANATOMY, 99).name, 'skin', 'out-of-range count is clamped');
 assert.equal(layerFor(ANATOMY, -1).name, 'bone', 'out-of-range count is clamped');
 
@@ -190,12 +191,13 @@ for (const l of ANATOMY.layers.slice(1)) {
 
 // Displace covers the whole oval; project cuts the eyes and mouth back out of
 // it, which is three more closed rings in the clip path.
+const clipped = ANATOMY.layers.find((l) => l.name === 'muscle')!;
 const projected = spy();
 setMode('project');
-layerFor(ANATOMY, 3).face!(projected.ctx, faceLm);
+clipped.face!(projected.ctx, faceLm);
 const displaced = spy();
 setMode('displace');
-layerFor(ANATOMY, 3).face!(displaced.ctx, faceLm);
+clipped.face!(displaced.ctx, faceLm);
 setMode('project');
 assert.ok(
   displaced.calls.closePath < projected.calls.closePath,

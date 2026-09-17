@@ -15,10 +15,22 @@ export type Palette = { name: string; layers: Layer[] };
 
 type Conn = { start: number; end: number };
 
+/**
+ * Which layer each finger count picks, as a table rather than an even spread.
+ *
+ * The poses are not equally easy to hold or to read: an open hand and a fist
+ * are the two nobody fumbles, and the counts between them are where the
+ * detector has to guess. So each count is grouped towards the layer it is
+ * nearest rather than the layers being spaced evenly across the range, and
+ * bone — which carries the spread gesture on top of being a layer — gets the
+ * widest catchment.
+ */
+const PICK = [2, 2, 2, 1, 1, 0];
+
 /** Open hand picks the first layer, closed fist the last. */
 export function layerFor(p: Palette, fingers: number): Layer {
-  const f = Math.min(5, Math.max(0, fingers));
-  return p.layers[Math.round(((5 - f) / 5) * (p.layers.length - 1))];
+  const f = Math.round(Math.min(5, Math.max(0, fingers)));
+  return p.layers[Math.min(p.layers.length - 1, PICK[f])];
 }
 
 /**
@@ -325,62 +337,6 @@ const faceSpace = (lm: Pt[]) => {
   });
 };
 
-/** Deterministic, so every frame bakes the same pattern. */
-function rand(seed: number) {
-  let s = seed >>> 0;
-  return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
-}
-
-// ---------------------------------------------------------------- fat -----
-// Adipose tissue is lobular: pale yellow globules packed inside a web of
-// fibrous septa. Positions are baked once in face space and drawn through the
-// live mapping.
-const LOBULES = (() => {
-  const r = rand(20260914);
-  return Array.from({ length: 620 }, () => ({
-    u: -0.55 + r() * 2.1,
-    v: -1.75 + r() * 3.3,
-    s: 0.016 + r() * 0.03,
-    tint: r()
-  }));
-})();
-
-const faceFat: Renderer = (ctx, lm) => {
-  if (lm.length < 468 || OVAL.length < 3) return;
-  const at = faceSpace(lm);
-  const s = faceScale(lm);
-  ctx.save();
-  clipFace(ctx, lm);
-
-  // Shaded adipose base, so the cheeks and brow keep their form.
-  surface(ctx, lm, (k) => mix(232, 196, 108, 0.55 + k * 0.62));
-
-  // Lobules: small globules packed inside a web of fibrous septa.
-  for (const l of LOBULES) {
-    const p = at(l.u, l.v);
-    const r = l.s * s;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = l.tint > 0.7 ? 'rgba(248,226,150,0.5)'
-      : l.tint > 0.4 ? 'rgba(226,190,98,0.45)'
-      : 'rgba(198,158,68,0.45)';
-    ctx.fill();
-    ctx.lineWidth = Math.max(0.6, r * 0.16);
-    ctx.strokeStyle = 'rgba(250,242,214,0.35)'; // septum, pale and fibrous
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(p.x - r * 0.3, p.y - r * 0.32, r * 0.4, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,250,226,0.3)'; // wet sheen
-    ctx.fill();
-  }
-
-  rings(ctx, lm, [OVAL]);
-  ctx.lineWidth = s / 55;
-  ctx.strokeStyle = 'rgba(120,84,20,0.5)';
-  ctx.stroke();
-  ctx.restore();
-};
-
 // ------------------------------------------------------------- muscle -----
 const faceMuscle: Renderer = (ctx, lm) => {
   if (lm.length < 468 || OVAL.length < 3) return;
@@ -526,20 +482,6 @@ const faceBone: Renderer = (ctx, lm, expr) => {
 /** Palm width, via wrist to middle-finger MCP. */
 const handScale = (lm: Pt[]) => span(lm[0], lm[9]);
 
-const handFat: Renderer = (ctx, lm) => {
-  if (lm.length < 21) return;
-  const s = handScale(lm);
-  // One padded pass, then a narrower lighter one: fat over the tendons.
-  strokeConns(ctx, lm, HandLandmarker.HAND_CONNECTIONS, s / 2.6, '#c69a3c');
-  strokeConns(ctx, lm, HandLandmarker.HAND_CONNECTIONS, s / 3.4, '#e7c469');
-  ctx.fillStyle = 'rgba(255,247,214,0.35)';
-  for (const i of [0, 5, 9, 13, 17]) {
-    ctx.beginPath();
-    ctx.arc(lm[i].x - s * 0.05, lm[i].y - s * 0.05, s / 4.5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-};
-
 const handMuscle: Renderer = (ctx, lm) => {
   if (lm.length < 21) return;
   const s = handScale(lm);
@@ -595,7 +537,6 @@ export const ANATOMY: Palette = {
   name: 'anatomy',
   layers: [
     { name: 'skin', face: null, hand: null },
-    { name: 'subcutaneous fat', face: faceFat, hand: handFat },
     { name: 'muscle', face: faceMuscle, hand: handMuscle },
     { name: 'bone', face: faceBone, hand: handBone }
   ]

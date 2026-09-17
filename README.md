@@ -20,18 +20,21 @@ A button toggles what the frame shows. **Project** keeps the camera: the room
 and the person stay, and the layer is drawn onto the face with the eyes and
 mouth left open so they read through it. **Displace** lays a translucent dark sheet over the room
 inside the frame and covers the whole face oval, so only the layer reads. Skin
-is exempt: it is the bare camera, so there is nothing to read against. The
-bone layer is a radiograph either way, so it always covered the face.
+is exempt: it is the bare camera, so there is nothing to read against. Bone
+replaces the face outright either way, so the mode does not reach it.
 
-The anatomy palette is four layers deep. How many fingers you
+The anatomy palette is three layers deep. How many fingers you
 hold up picks one:
 
 | fingers | pose | layer |
 |---|---|---|
 | 5 | whole hand | skin — bare camera |
-| 3 | thumb, index, middle | subcutaneous fat |
-| 2 | thumb and index | muscle |
-| 0 | fist | bone, as a radiograph |
+| 4–3 | thumb, index, middle | muscle |
+| 2–0 | thumb and index, down to a fist | bone — the 3D skull |
+
+The counts are grouped rather than spread evenly: an open hand and a fist are
+the two poses nobody fumbles, and the ones between them are where the detector
+has to guess.
 
 The face layers fill the tesselation's own triangles, shaded per facet from
 the landmark depths, so the tissue keeps the form of the head underneath
@@ -45,12 +48,40 @@ of the art. No table of coordinates to keep in step with the image, and
 swapping the art needs no code change. Without the file, the layer falls back
 to drawing itself.
 
+## The bone layer
+
+Bone is not drawn from landmarks at all. It is a real skull —
+`public/assets/skull.glb` — rendered with three.js and posed to the head. It
+draws to its own WebGL canvas and is blitted into the same 2D context as
+everything else, so there is still one clipping path, one mirror and one wipe
+for every layer.
+
+The pose comes from four landmarks rather than MediaPipe's head-pose matrix:
+234 and 454 at the temples, 10 at the forehead and 152 at the chin, all on
+bone so expression does not move them. The matrix would be fewer lines, but a
+transposed rotation is its own inverse — the head would turn the wrong way and
+the code would still look right — and four landmarks can be checked against
+numbers instead of against a tablet.
+
+**Spreading your hands separates the bones.** The frame is already held
+between thumb and index, so widening it is one motion rather than a second
+gesture; the frame measured against the face's own width drives how far the
+bones travel, in multiples of the face so it holds at any distance from the
+camera. A fist still picks the layer, because the frame is measured from
+fingertips and the count from extension.
+
+Each bone's direction out of the skull comes from its own geometry, so the
+file needs no authored explode hints and bones added to it later need no code
+change. The model is Draco-compressed; the decoder is served from
+`public/draco/` rather than a CDN. A model that fails to load is not an error —
+the bone layer falls back to drawing a radiograph.
+
 ## Dev
 
 ```bash
 npm install
 npm run dev     # then open the printed LAN URL on the tablet
-npm test        # gesture + palette checks
+npm test        # gesture + palette + pose checks
 ```
 
 ## Testing on an Android tablet
