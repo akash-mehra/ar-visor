@@ -5,7 +5,10 @@ import {
   FingerCount,
   LateralExit,
   Latch,
+  DoubleBlink,
   PinchZoom,
+  coverFit,
+  onScreen,
   boundsOf,
   countExtended,
   faceBasis,
@@ -386,4 +389,53 @@ assert.equal(pinch([{ x: 0, y: 0 }]), null, 'a partial hand cannot pinch');
   assert.equal(z.scale, 1, 'reset is life size');
 }
 
-console.log('gesture + palette + pose + study + zoom checks passed');
+{
+  const d = new DoubleBlink(700);
+  // Counted on the eye reopening, so a close on its own is never half a pair.
+  assert.equal(d.update(true, 0), false, 'closing is not a blink yet');
+  assert.equal(d.update(false, 80), false, 'one completed blink');
+  assert.equal(d.update(true, 300), false, 'closing again');
+  assert.equal(d.update(false, 380), true, 'two inside the window fires');
+  // Spent, so a third blink starts a fresh pair rather than firing again.
+  assert.equal(d.update(true, 500), false, 'closing');
+  assert.equal(d.update(false, 560), false, 'the third is a new first');
+}
+{
+  const d = new DoubleBlink(700);
+  d.update(true, 0); d.update(false, 50);
+  d.update(true, 2000);
+  assert.equal(d.update(false, 2050), false, 'too slow is two singles, not a double');
+}
+{
+  // A long hold is one blink, not a flutter: only the reopening counts.
+  const d = new DoubleBlink(700);
+  d.update(true, 0);
+  for (let t = 10; t < 600; t += 10) assert.equal(d.update(true, t), false, 'held shut');
+  assert.equal(d.update(false, 600), false, 'one blink out of a long close');
+}
+
+// object-fit: cover fills and crops evenly; a label pointing at something
+// drawn in the canvas has to travel the same path or it drifts.
+{
+  // 640x480 canvas into a 480x640 portrait viewport: crops the sides.
+  const f = coverFit(640, 480, 480, 640);
+  assert.equal(f.scale, 640 / 480, 'cover scales by the larger ratio');
+  assert.ok(f.x < 0 && f.y === 0, 'the crop is horizontal here');
+  // Mirrored: the canvas draws flipped, so x is measured back from the far edge.
+  const mid = onScreen({ x: 320, y: 240 }, 640, f);
+  near(mid.x, 240, 'the centre stays centred');
+  near(mid.y, 320, 'and vertically too');
+  const left = onScreen({ x: 0, y: 0 }, 640, f);
+  const right = onScreen({ x: 640, y: 0 }, 640, f);
+  assert.ok(right.x < left.x, 'mirrored: landmark x grows leftwards on screen');
+}
+{
+  // Same aspect: no crop, no offset, a clean scale.
+  const f = coverFit(640, 480, 1280, 960);
+  assert.equal(f.scale, 2);
+  assert.deepEqual([f.x, f.y], [0, 0], 'nothing to crop');
+  near(onScreen({ x: 640, y: 480 }, 640, f).x, 0, 'the far edge mirrors to zero');
+}
+assert.deepEqual(coverFit(0, 0, 100, 100), { scale: 1, x: 0, y: 0 }, 'no canvas, no crash');
+
+console.log('gesture + palette + pose + study + zoom + ui checks passed');

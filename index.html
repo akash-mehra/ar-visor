@@ -3,15 +3,70 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#05070a" />
     <title>AR Visor</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
     <video id="cam" playsinline muted hidden></video>
     <canvas id="view"></canvas>
-    <button id="start">Start camera</button>
-    <button id="mode" hidden>Project</button>
-    <p id="status" role="status"></p>
+
+    <!-- Follows the bone it names, offset by its own tail. -->
+    <figure id="callout" hidden>
+      <i class="tail" aria-hidden="true"></i>
+      <span id="calloutName"></span>
+    </figure>
+
+    <p id="status" role="status" aria-live="polite"></p>
+
+    <!-- Wireframe and anchors only: what the tracker sees, not what it draws. -->
+    <aside id="scope" hidden>
+      <canvas id="scopeView" width="240" height="180"></canvas>
+      <span id="scopeLabel">tracking</span>
+    </aside>
+
+    <div id="zoom" hidden>
+      <input id="zoomRange" type="range" min="0" max="100" value="43" step="1"
+             aria-label="Zoom" orient="vertical" />
+      <output id="zoomValue" for="zoomRange">1.0×</output>
+    </div>
+
+    <nav id="dock" hidden>
+      <button id="mode" type="button" class="pill">Project</button>
+      <button id="menuBtn" type="button" class="pill" aria-expanded="false" aria-controls="menu">
+        <svg viewBox="0 0 16 16" aria-hidden="true" class="ico">
+          <path d="M2 4h12M2 8h12M2 12h8" />
+        </svg>
+        Bones
+      </button>
+      <button id="scopeBtn" type="button" class="pill" aria-pressed="false">
+        <svg viewBox="0 0 16 16" aria-hidden="true" class="ico">
+          <path d="M8 2.5v11M2.5 8h11" />
+          <circle cx="8" cy="8" r="5.25" />
+        </svg>
+        Scope
+      </button>
+      <button id="record" type="button" class="pill rec" aria-pressed="false">
+        <span class="dot" aria-hidden="true"></span>
+        <span id="recLabel">Record</span>
+      </button>
+    </nav>
+
+    <section id="menu" hidden aria-label="Bones">
+      <header>
+        <h2>Bones</h2>
+        <button id="menuClose" type="button" class="icon" aria-label="Close">
+          <svg viewBox="0 0 16 16" aria-hidden="true" class="ico">
+            <path d="M4 4l8 8M12 4l-8 8" />
+          </svg>
+        </button>
+      </header>
+      <ul id="boneList"></ul>
+    </section>
+
+    <button id="start" type="button">Start camera</button>
+    <a id="save" hidden download></a>
+
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

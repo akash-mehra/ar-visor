@@ -1,15 +1,70 @@
+/*
+ * Chrome floating over a live camera feed.
+ *
+ * Glass is doing a job here rather than decorating: the controls sit on top of
+ * moving video and have to stay legible against a sunlit window one second and
+ * a dark room the next. So every panel carries its own opaque floor under the
+ * blur — alpha alone would let the feed set the contrast — and the blur is
+ * paired with saturation, which is what pulls colour up out of the picture
+ * behind and makes the surface read as a material rather than a scrim.
+ */
+:root {
+  --glass: rgba(13, 17, 25, 0.58);
+  --glass-lift: rgba(23, 30, 43, 0.66);
+  --edge: rgba(255, 255, 255, 0.14);
+  --spec: rgba(255, 255, 255, 0.26);
+  --frost: blur(24px) saturate(185%);
+
+  --ink: rgba(247, 250, 255, 0.97);
+  --ink-dim: rgba(198, 214, 238, 0.7);
+  --accent: #6fd9f2;
+  --rec: #ff4d43;
+
+  --r-lg: 22px;
+  --r-md: 15px;
+  --r-pill: 999px;
+
+  --lift: 0 10px 30px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --pad: 14px;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+
+  color-scheme: dark;
+  accent-color: var(--accent);
+}
+
 html, body {
   margin: 0;
   height: 100%;
-  background: #000;
+  background: #05070a;
   overflow: hidden;
   touch-action: none;
   overscroll-behavior: none;
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+  font: 500 14px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink);
 }
 
+/*
+ * An author `display` beats the UA stylesheet's `hidden`, and the dock, the
+ * slider and the menu all set one — without this they are on screen before
+ * there is a camera behind them.
+ */
+[hidden] { display: none !important; }
+
+::selection { background: rgba(111, 217, 242, 0.32); color: #fff; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* The camera is the page; everything else floats. */
 #view {
   position: fixed;
   inset: 0;
@@ -19,46 +74,419 @@ html, body {
   display: block;
 }
 
+.glass {
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
+  border: 1px solid var(--edge);
+  box-shadow: var(--lift), inset 0 1px 0 var(--spec);
+}
+
+/* ---------------------------------------------------------------- dock --- */
+#dock {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--safe-b) + 18px);
+  z-index: 4;
+  display: flex;
+  gap: 8px;
+  padding: 7px;
+  transform: translateX(-50%);
+  border-radius: var(--r-pill);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
+  border: 1px solid var(--edge);
+  box-shadow: var(--lift), inset 0 1px 0 var(--spec);
+  max-width: calc(100vw - 24px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+#dock::-webkit-scrollbar { display: none; }
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  min-height: 42px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: background 0.22s var(--ease), transform 0.22s var(--ease);
+}
+.pill:hover { background: rgba(255, 255, 255, 0.13); }
+.pill:active { transform: scale(0.96); }
+.pill[aria-expanded='true'],
+.pill[aria-pressed='true'] {
+  background: rgba(111, 217, 242, 0.2);
+  color: #eafaff;
+  box-shadow: inset 0 0 0 1px rgba(111, 217, 242, 0.45);
+}
+.pill:disabled { opacity: 0.45; cursor: default; }
+
+.ico {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.rec .dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--rec);
+  box-shadow: 0 0 0 0 rgba(255, 77, 67, 0.55);
+}
+/* The one authored moment: a pulse that only exists while actually recording. */
+.rec[aria-pressed='true'] { background: rgba(255, 77, 67, 0.22); box-shadow: inset 0 0 0 1px rgba(255, 77, 67, 0.5); }
+.rec[aria-pressed='true'] .dot { animation: beat 1.6s var(--ease) infinite; border-radius: 3px; }
+@keyframes beat {
+  0%   { box-shadow: 0 0 0 0 rgba(255, 77, 67, 0.5); }
+  70%  { box-shadow: 0 0 0 9px rgba(255, 77, 67, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 77, 67, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rec[aria-pressed='true'] .dot { animation: none; }
+  * { transition-duration: 0.01ms !important; }
+}
+
+/* -------------------------------------------------------------- status --- */
+#status {
+  position: fixed;
+  left: 50%;
+  top: calc(var(--safe-t) + 12px);
+  z-index: 3;
+  margin: 0;
+  padding: 7px 15px;
+  max-width: min(76vw, 460px);
+  transform: translateX(-50%);
+  border-radius: var(--r-pill);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
+  border: 1px solid var(--edge);
+  box-shadow: var(--lift), inset 0 1px 0 var(--spec);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+#status:empty { display: none; }
+
+/* ------------------------------------------------------------- callout --- */
+/*
+ * An atlas leader, not a speech bubble: the arrow touches the bone and the
+ * label stands off it, so the thing being named is never underneath the thing
+ * naming it.
+ */
+#callout {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  margin: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+#callout .tail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 56px;
+  height: 1px;
+  transform-origin: 0 50%;
+  transform: rotate(-38deg);
+  background: linear-gradient(90deg, var(--accent), rgba(111, 217, 242, 0.35));
+}
+#callout .tail::after {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 50%;
+  border: 4.5px solid transparent;
+  border-right-color: var(--accent);
+  transform: translateY(-50%);
+}
+#calloutName {
+  position: absolute;
+  left: 44px;
+  top: -47px;
+  display: block;
+  padding: 7px 13px;
+  border-radius: var(--r-md);
+  background: var(--glass-lift);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
+  border: 1px solid var(--edge);
+  box-shadow: var(--lift), inset 0 1px 0 var(--spec);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.012em;
+  white-space: nowrap;
+  animation: callout 0.32s var(--ease) both;
+}
+@keyframes callout {
+  from { opacity: 0; transform: translate(-6px, 4px) scale(0.94); filter: blur(3px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+/* Near the right edge the label would run off, so the leader mirrors. */
+#callout.flip .tail { transform: rotate(-142deg); }
+#callout.flip #calloutName { left: auto; right: 44px; }
+
+/* ---------------------------------------------------------------- zoom --- */
+#zoom {
+  position: fixed;
+  left: 14px;
+  top: 50%;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 9px;
+  transform: translateY(-50%);
+  border-radius: var(--r-pill);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
+  border: 1px solid var(--edge);
+  box-shadow: var(--lift), inset 0 1px 0 var(--spec);
+}
+#zoomRange {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 26px;
+  height: min(34vh, 220px);
+  margin: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+#zoomRange::-webkit-slider-runnable-track {
+  width: 5px;
+  border-radius: var(--r-pill);
+  background: linear-gradient(to top, rgba(111, 217, 242, 0.55), rgba(255, 255, 255, 0.14));
+}
+#zoomRange::-moz-range-track {
+  width: 5px;
+  border-radius: var(--r-pill);
+  background: linear-gradient(to top, rgba(111, 217, 242, 0.55), rgba(255, 255, 255, 0.14));
+}
+#zoomRange::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-left: -8.5px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #fdffff, #cfe6ef);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 3px 9px rgba(0, 0, 0, 0.55);
+}
+#zoomRange::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  background: linear-gradient(180deg, #fdffff, #cfe6ef);
+  box-shadow: 0 3px 9px rgba(0, 0, 0, 0.55);
+}
+#zoomValue {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------- scope --- */
+/* The tracker's own view: wireframe and anchors, nothing drawn on top. */
+#scope {
+  position: fixed;
+  right: 14px;
+  top: calc(var(--safe-t) + 14px);
+  z-index: 4;
+  width: 152px;
+  padding: 7px;
+  border-radius: var(--r-md);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
+  border: 1px solid var(--edge);
+  box-shadow: var(--lift), inset 0 1px 0 var(--spec);
+}
+#scopeView {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 9px;
+  background: rgba(2, 5, 9, 0.72);
+}
+#scopeLabel {
+  display: block;
+  margin-top: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- menu --- */
+#menu {
+  position: fixed;
+  right: 14px;
+  bottom: calc(var(--safe-b) + 104px);
+  z-index: 5;
+  width: min(268px, calc(100vw - 28px));
+  max-height: min(52vh, 420px);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-lg);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
+  border: 1px solid var(--edge);
+  box-shadow: var(--lift), inset 0 1px 0 var(--spec);
+  overflow: hidden;
+  animation: panel 0.34s var(--ease) both;
+}
+@keyframes panel {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); filter: blur(6px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+#menu header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 8px 10px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+#menu h2 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.2s var(--ease);
+}
+.icon:hover { background: rgba(255, 255, 255, 0.16); }
+
+#boneList {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(111, 217, 242, 0.4) transparent;
+}
+#boneList::-webkit-scrollbar { width: 7px; }
+#boneList::-webkit-scrollbar-track { background: transparent; }
+#boneList::-webkit-scrollbar-thumb {
+  border-radius: var(--r-pill);
+  background: rgba(111, 217, 242, 0.38);
+}
+#boneList::-webkit-scrollbar-thumb:hover { background: rgba(111, 217, 242, 0.6); }
+
+#boneList button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s var(--ease);
+}
+#boneList button:hover { background: rgba(255, 255, 255, 0.1); }
+#boneList button:active { background: rgba(111, 217, 242, 0.22); }
+#boneList button[aria-current='true'] {
+  background: rgba(111, 217, 242, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(111, 217, 242, 0.4);
+}
+/* Each bone's own colour, carried over from the model. */
+#boneList .swatch {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.28);
+}
+#boneList .none {
+  padding: 16px 12px;
+  font-size: 12.5px;
+  color: var(--ink-dim);
+}
+
+/* --------------------------------------------------------------- start --- */
 #start {
   position: fixed;
   left: 50%;
-  bottom: 8vh;
-  transform: translateX(-50%);
-  padding: 1rem 2rem;
-  font: 600 1rem system-ui, sans-serif;
-  border: 0;
-  border-radius: 999px;
-  background: #fff;
-  color: #000;
-  min-height: 48px;
+  top: 50%;
+  z-index: 6;
+  min-height: 52px;
+  padding: 0 28px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-pill);
+  background: var(--glass-lift);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
+  box-shadow: var(--lift), inset 0 1px 0 var(--spec);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: transform 0.24s var(--ease), background 0.24s var(--ease);
 }
+#start:hover { background: rgba(37, 48, 66, 0.72); }
+#start:active { transform: translate(-50%, -50%) scale(0.96); }
+#start:disabled { opacity: 0.5; cursor: default; }
 
-#start:disabled { opacity: 0.5; }
-
-#mode {
-  position: fixed;
-  left: 12px;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
-  z-index: 2;
-  min-height: 44px;
-  padding: 0 14px;
-  font: 600 0.9rem system-ui, sans-serif;
-  border: 0;
-  border-radius: 6px;
-  background: #fff;
-  color: #000;
-}
-
-#status {
-  position: fixed;
-  left: 0;
-  right: 0;
-  top: env(safe-area-inset-top, 0);
-  margin: 0;
-  padding: 0.5rem;
-  text-align: center;
-  font: 500 0.9rem system-ui, sans-serif;
-  color: #fff;
-  text-shadow: 0 1px 2px #000;
-  pointer-events: none;
+/* Short screens: the scope is the first thing that can go. */
+@media (max-height: 520px) {
+  #scope { display: none; }
+  #zoomRange { height: 26vh; }
 }

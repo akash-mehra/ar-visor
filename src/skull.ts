@@ -1,6 +1,7 @@
 import {
   AmbientLight,
   Box3,
+  Color,
   DirectionalLight,
   Euler,
   Group,
@@ -56,6 +57,10 @@ export type Skull = {
   pickAt(x: number, y: number): number;
   /** A bone's name, for reading. */
   nameOf(i: number): string;
+  /** A bone's own colour, as CSS, so a list can carry the same coding. */
+  colourOf(i: number): string;
+  /** Where a bone currently sits, in canvas pixels, or null. */
+  screenOf(i: number): { x: number; y: number } | null;
   /** Show one bone on its own, or -1 for the whole skull. */
   isolate(i: number): void;
   /** Turned by hand rather than by the head, once a bone is on its own. */
@@ -94,6 +99,8 @@ export async function loadSkull(url: string, dracoPath: string): Promise<Skull> 
     setZoom: () => {},
     pickAt: () => -1,
     nameOf: () => '',
+    colourOf: () => '#ffffff',
+    screenOf: () => null,
     isolate: () => {},
     setSpin: () => {},
     draw: () => {}
@@ -211,6 +218,14 @@ export async function loadSkull(url: string, dracoPath: string): Promise<Skull> 
   };
   state.nameOf = (i) => (parts[i] ? label(parts[i].mesh) : '');
 
+  // The model colour-codes every bone; a list of names that ignored that would
+  // be throwing away the one thing making them tellable apart at a glance.
+  state.colourOf = (i) => {
+    const m = parts[i]?.mesh.material;
+    const c = (Array.isArray(m) ? m[0] : m) as { color?: Color } | undefined;
+    return c?.color ? `#${c.color.getHexString()}` : '#ffffff';
+  };
+
   let spinYaw = 0;
   let spinPitch = 0;
   state.setSpin = (yaw, pitch) => {
@@ -231,6 +246,23 @@ export async function loadSkull(url: string, dracoPath: string): Promise<Skull> 
     // A hidden bone is still in the scene, and the raycaster does not care.
     const hit = ray.intersectObjects(meshes.filter((m) => m.visible), false)[0];
     return hit ? meshes.indexOf(hit.object as Mesh) : -1;
+  };
+
+  // Where a bone is on screen, so a label can point at it and keep pointing as
+  // the view turns. The mesh origin is wherever the exporter left it — usually
+  // the model's, not the bone's — so the geometry's own centre is the anchor,
+  // carried through whatever the explode has done to it.
+  const vProj = new Vector3();
+  const vMid = new Vector3();
+  state.screenOf = (i) => {
+    const p = parts[i];
+    if (!p || !gl.width || !p.mesh.visible) return null;
+    p.box.getCenter(vMid);
+    vProj.copy(vMid).add(centre).add(p.mesh.position);
+    gltf.scene.localToWorld(vProj);
+    vProj.project(camera);
+    if (vProj.x < -1.6 || vProj.x > 1.6 || vProj.y < -1.6 || vProj.y > 1.6) return null;
+    return { x: (vProj.x * 0.5 + 0.5) * gl.width, y: (-vProj.y * 0.5 + 0.5) * gl.height };
   };
 
   const basisMatrix = new Matrix4();

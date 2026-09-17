@@ -11,6 +11,7 @@ import {
   FingerCount,
   LateralExit,
   Latch,
+  DoubleBlink,
   PinchZoom,
   countExtended,
   frameQuad,
@@ -28,6 +29,7 @@ import {
   type Mode
 } from './palette';
 import type { Skull } from './skull';
+import { initUi } from './ui';
 
 const WASM_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
 const FACE_MODEL =
@@ -41,6 +43,29 @@ const startBtn = document.getElementById('start') as HTMLButtonElement;
 const modeBtn = document.getElementById('mode') as HTMLButtonElement;
 const status = document.getElementById('status') as HTMLParagraphElement;
 const ctx = canvas.getContext('2d', { alpha: false })!;
+
+const ui = initUi(canvas, {
+  // Tapping a name is the same destination as grabbing the bone, minus the
+  // gesture: a way in for anyone who cannot hold both hands up, and a way to
+  // reach a bone buried too deep in the skull to pinch.
+  pick(i) {
+    if (!skull?.ready) return;
+    stage = 'single';
+    skull.isolate(i);
+    boneIdx = i;
+    spinYaw = 0;
+    spinPitch = 0;
+    skull.setSpin(0, 0);
+    zoom.reset();
+    skull.setZoom(1);
+    ui.zoom(1);
+    ui.mark(i);
+  },
+  zoom(z) {
+    zoom.set(z);
+    skull?.setZoom(z);
+  }
+});
 
 /**
  * Two ways to hold the app.
@@ -66,7 +91,7 @@ const NO_FACE: Pt[] = [];
 
 let stage: Stage = 'framed';
 let explode = 0;
-let bone: string | null = null;
+let boneIdx = -1;
 let grabbed = -1;
 let grabSince = 0;
 let grabSpan = 0;
@@ -77,17 +102,21 @@ let spinPitch = 0;
 const exit = new LateralExit();
 const clap = new Clap();
 const zoom = new PinchZoom();
+// Both eyes, twice, quickly: a shutter for when both hands are busy holding
+// the frame the recording is of.
+const shutter = new DoubleBlink();
 const counter = new FingerCount();
 // Blink and jaw scores hover, so each gets a trigger rather than a threshold.
 const blink = new Latch(0.5, 0.3);
 const mouth = new Latch(0.4, 0.22);
 let mode: Mode = 'project';
-modeBtn.textContent = `Mode: ${mode}`;
+const modeName = () => (mode === 'project' ? 'Project' : 'Displace');
+modeBtn.textContent = modeName();
 
 modeBtn.addEventListener('click', () => {
   mode = mode === 'project' ? 'displace' : 'project';
   setMode(mode);
-  modeBtn.textContent = `Mode: ${mode}`;
+  modeBtn.textContent = modeName();
 });
 const wipe = new Wipe();
 
@@ -124,7 +153,13 @@ async function initSkull() {
   const { loadSkull } = await import('./skull');
   const base = import.meta.env.BASE_URL;
   skull = await loadSkull(`${base}assets/skull.glb`, `${base}draco/`);
-  if (skull.ready) setBoneRenderer(skull.draw);
+  if (!skull.ready) {
+    ui.listBones([], []);
+    return;
+  }
+  setBoneRenderer(skull.draw);
+  const names = Array.from({ length: skull.bones }, (_, i) => skull!.nameOf(i));
+  ui.listBones(names, names.map((_, i) => skull!.colourOf(i)));
 }
 
 async function initModels() {
@@ -229,7 +264,7 @@ function loop() {
   if (stage === 'framed') {
     if (picked.name === BONE.name && skull?.ready && exit.update(handsPx, canvas.width, t)) {
       stage = 'study';
-      bone = null;
+      boneIdx = -1;
     }
   }
 
@@ -241,13 +276,19 @@ function loop() {
   explode += ((stage === 'framed' ? 0 : 1) - explode) * EXPLODE_EASE;
   skull?.setExplode(explode);
 
+  // The name itself has moved to the label that points at the bone, so this
+  // line carries what to do rather than what you are looking at.
   status.textContent =
     skull?.error ??
     (stage === 'single'
-      ? `${bone ?? 'bone'} · drag to turn · clap to go back`
+      ? 'Pinch and drag to turn · clap to go back'
       : stage === 'study'
-        ? bone ?? 'pinch to name · hold two on one bone to lift it out'
+        ? 'Pinch to name · hold two on one bone to lift it out'
         : layer.name);
+
+  // A double blink is a shutter, and it works in every stage — the hands are
+  // usually holding the thing worth recording.
+  if (shutter.update(expr.blink, t)) ui.toggleRecord();
 
   // Converted once: a wipe paints both layers, and the face mesh is 478 points.
   const facePx = faceRes.faceLandmarks[0] ? px(faceRes.faceLandmarks[0]) : null;
@@ -271,7 +312,9 @@ function loop() {
     const pinched = handsPx.map((hand) => pinch(hand)).filter((p): p is Pt => p !== null);
     if (pinched.length >= 2) {
       const span = Math.hypot(pinched[0].x - pinched[1].x, pinched[0].y - pinched[1].y);
-      skull.setZoom(zoom.update(pinched[0], pinched[1]));
+      const z = zoom.update(pinched[0], pinched[1]);
+      skull.setZoom(z);
+      ui.zoom(z); // the slider is the same number, shown
       clap.update([]); // hands are busy; do not let the latch sit shut
       dragFrom = null;
 
@@ -288,12 +331,13 @@ function loop() {
           if (t - grabSince > GRAB_HOLD) {
             stage = 'single';
             skull.isolate(both);
-            bone = skull.nameOf(both);
+            boneIdx = both;
             spinYaw = 0;
             spinPitch = 0;
             skull.setSpin(0, 0);
             zoom.reset();
             skull.setZoom(1);
+            ui.zoom(1);
           }
         } else {
           grabbed = both;
@@ -320,7 +364,7 @@ function loop() {
         dragFrom = null;
         // A pinch that catches nothing clears the label, so the reading always
         // belongs to the last thing pinched rather than going stale on screen.
-        if (pinched.length === 1) bone = skull.nameOf(skull.pickAt(pinched[0].x, pinched[0].y)) || null;
+        if (pinched.length === 1) boneIdx = skull.pickAt(pinched[0].x, pinched[0].y);
       }
 
       // One step back rather than all the way out: a single bone returns to
@@ -332,10 +376,11 @@ function loop() {
         } else {
           stage = 'framed';
         }
-        bone = null;
+        boneIdx = -1;
         dragFrom = null;
         zoom.reset();
         skull.setZoom(1);
+        ui.zoom(1);
       }
     }
   } else {
@@ -415,6 +460,19 @@ function loop() {
     paint(to);
   }
   ctx.restore();
+
+  // Both of these read the frame that has just been drawn, so they come last.
+  // The label follows its bone rather than the fingertips that named it, which
+  // is what keeps it attached while the view turns under it.
+  const named = stage !== 'framed' && skull?.ready && boneIdx >= 0;
+  ui.label(
+    named ? skull!.nameOf(boneIdx) : null,
+    named ? skull!.screenOf(boneIdx) : null,
+    canvas.width,
+    canvas.height
+  );
+  ui.mark(stage === 'single' ? boneIdx : -1);
+  ui.scope(facePx, handsPx, quad, canvas.width, canvas.height);
 }
 
 let looping = false;
@@ -434,7 +492,7 @@ startBtn.addEventListener('click', async () => {
     navigator.wakeLock?.request('screen').catch(() => {});
     status.textContent = '';
     startBtn.hidden = true;
-    modeBtn.hidden = false;
+    ui.begin();
     if (!looping) {
       looping = true;
       loop();
