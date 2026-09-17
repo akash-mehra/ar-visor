@@ -39,6 +39,8 @@ const FORWARD_OFFSET = 0; // + moves the skull away from the camera
 const UP_OFFSET = 0; // + raises it, in face widths
 /** How far a bone travels at full spread, as a fraction of the skull. */
 const EXPLODE_SPAN = 0.6;
+/** How much of the short edge the separated skull is allowed to fill. */
+const STUDY_FILL = 0.9;
 
 export type Skull = {
   ready: boolean;
@@ -47,6 +49,8 @@ export type Skull = {
   bones: number;
   /** 0 rests, 1 fully separated. */
   setExplode(t: number): void;
+  /** Multiplies the separated view's size. 1 is fit-to-screen. */
+  setZoom(z: number): void;
   /** The bone under a canvas point, named for reading. */
   nameAt(x: number, y: number): string | null;
   draw: Renderer;
@@ -72,7 +76,7 @@ function label(mesh: Mesh): string {
       side.toLowerCase() === 'l' ? ' (left)' : ' (right)');
 }
 
-type Part = { mesh: Mesh; out: Vector3 };
+type Part = { mesh: Mesh; out: Vector3; box: Box3 };
 
 export async function loadSkull(url: string, dracoPath: string): Promise<Skull> {
   const state: Skull = {
@@ -80,6 +84,7 @@ export async function loadSkull(url: string, dracoPath: string): Promise<Skull> 
     error: null,
     bones: 0,
     setExplode: () => {},
+    setZoom: () => {},
     nameAt: () => null,
     draw: () => {}
   };
@@ -122,10 +127,43 @@ export async function loadSkull(url: string, dracoPath: string): Promise<Skull> 
   gltf.scene.traverse((o) => {
     const m = o as Mesh;
     if (!m.isMesh) return;
-    const c = new Box3().setFromObject(m).getCenter(new Vector3()).sub(centre);
-    parts.push({ mesh: m, out: c.lengthSq() < 1e-12 ? new Vector3() : c.normalize() });
+    const box = new Box3().setFromObject(m);
+    box.min.sub(centre);
+    box.max.sub(centre);
+    const c = box.getCenter(new Vector3());
+    parts.push({ mesh: m, out: c.lengthSq() < 1e-12 ? new Vector3() : c.normalize(), box });
   });
   state.bones = parts.length;
+
+  /**
+   * Half the room the skull needs, at rest and fully apart.
+   *
+   * Measured from where the bones actually end up rather than from a sphere
+   * around the whole model: they do not all travel the same distance, and
+   * fitting the bounding diagonal leaves the view about a third smaller than
+   * the screen would allow. Taken across all three axes, not just the two on
+   * screen, because the head turns and its depth swings into view with it.
+   * Reading it off the geometry also means the re-exported model resizes
+   * itself.
+   */
+  const reachOf = (b: Box3) =>
+    Math.max(
+      Math.abs(b.min.x), Math.abs(b.max.x),
+      Math.abs(b.min.y), Math.abs(b.max.y),
+      Math.abs(b.min.z), Math.abs(b.max.z)
+    );
+  const fullTravel = EXPLODE_SPAN * size.length();
+  const apart = new Box3();
+  for (const p of parts) {
+    apart.union(
+      new Box3(
+        p.box.min.clone().addScaledVector(p.out, fullTravel),
+        p.box.max.clone().addScaledVector(p.out, fullTravel)
+      )
+    );
+  }
+  const restReach = reachOf(new Box3(box.min.clone().sub(centre), box.max.clone().sub(centre)));
+  const apartReach = reachOf(apart);
 
   const scene = new Scene();
   scene.add(root);
@@ -146,6 +184,11 @@ export async function loadSkull(url: string, dracoPath: string): Promise<Skull> 
   let explode = 0;
   state.setExplode = (t) => {
     explode = Math.min(1, Math.max(0, t));
+  };
+
+  let zoom = 1;
+  state.setZoom = (z) => {
+    zoom = z > 0 ? z : 1;
   };
 
   // Pinching reads the bone under the fingertips. Landmarks and the 3D are
@@ -182,9 +225,17 @@ export async function loadSkull(url: string, dracoPath: string): Promise<Skull> 
       camera.updateProjectionMatrix();
     }
 
-    // Model metres to canvas pixels, off the temple-to-temple span.
-    const scale = (b.width * WIDTH_RATIO) / size.x;
-    root.scale.setScalar(scale);
+    // Separating the bones is also what carries the skull off the face, and
+    // the same value drives both. At rest it is sized to the temples and sits
+    // where the head is; fully apart it is centred and sized to the screen,
+    // because a view of a skull in pieces is no longer a view of a face and
+    // scaling it to one only means standing closer throws the far bones off
+    // the edge. Everything between is the blend, so the move is the spread.
+    const travel = explode * fullTravel;
+    const reach = restReach + (apartReach - restReach) * explode;
+    const onFace = (b.width * WIDTH_RATIO) / size.x;
+    const onScreen = (Math.min(w, h) * STUDY_FILL * zoom) / (reach * 2);
+    root.scale.setScalar(onFace + (onScreen - onFace) * explode);
 
     vRight.set(b.right.x, b.right.y, b.right.z);
     vUp.set(b.up.x, b.up.y, b.up.z);
@@ -192,12 +243,14 @@ export async function loadSkull(url: string, dracoPath: string): Promise<Skull> 
     root.quaternion.setFromRotationMatrix(basisMatrix.makeBasis(vRight, vUp, vFwd));
 
     // Landmark space is canvas pixels with y down; the camera is centred with
-    // y up, so the origin moves to the middle and y flips.
+    // y up, so the origin moves to the middle and y flips. Fully separated the
+    // skull sits at the middle of the screen instead, which is also what makes
+    // a bone stay still long enough to be pinched.
     root.position.set(b.centre.x - w / 2, b.centre.y + h / 2, 0);
     root.position.addScaledVector(vFwd, -FORWARD_OFFSET * b.width);
     root.position.addScaledVector(vUp, UP_OFFSET * b.width);
+    root.position.multiplyScalar(1 - explode);
 
-    const travel = explode * EXPLODE_SPAN * size.length();
     for (const p of parts) p.mesh.position.copy(p.out).multiplyScalar(travel);
 
     renderer.render(scene, camera);

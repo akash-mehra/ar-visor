@@ -11,6 +11,7 @@ import {
   FingerCount,
   LateralExit,
   Latch,
+  PinchZoom,
   countExtended,
   frameQuad,
   pinch,
@@ -62,6 +63,7 @@ let bone: string | null = null;
 
 const exit = new LateralExit();
 const clap = new Clap();
+const zoom = new PinchZoom();
 const counter = new FingerCount();
 // Blink and jaw scores hover, so each gets a trigger rather than a threshold.
 const blink = new Latch(0.5, 0.3);
@@ -216,9 +218,6 @@ function loop() {
       stage = 'study';
       bone = null;
     }
-  } else if (clap.update(handsPx)) {
-    stage = 'framed';
-    bone = null;
   }
 
   // A clap lands with the hands together and nothing sensible to count, so the
@@ -247,17 +246,29 @@ function loop() {
         ]
       : frameQuad(handsPx);
 
-  // A pinch names the bone under the fingertips. A pinch that catches nothing
-  // clears the label, so the reading always belongs to the last thing pinched
-  // rather than going stale on screen.
-  if (stage === 'study' && skull) {
-    for (const hand of handsPx) {
-      const p = pinch(hand);
-      if (p) {
-        bone = skull.nameAt(p.x, p.y);
-        break;
+  // How many hands are pinching decides which gesture this is, which is what
+  // keeps the three of them out of each other's way: two pinched hands can
+  // only be a zoom, one can only be a question, and a clap needs both hands
+  // open — so pulling the zoom shut cannot slam the door on the way out.
+  if (stage === 'study') {
+    const pinched = handsPx.map((hand) => pinch(hand)).filter((p): p is Pt => p !== null);
+    if (pinched.length >= 2) {
+      skull?.setZoom(zoom.update(pinched[0], pinched[1]));
+      clap.update([]); // hands are busy; do not let the latch sit shut
+    } else {
+      zoom.release();
+      // A pinch that catches nothing clears the label, so the reading always
+      // belongs to the last thing pinched rather than going stale on screen.
+      if (pinched.length === 1 && skull) bone = skull.nameAt(pinched[0].x, pinched[0].y);
+      if (clap.update(handsPx)) {
+        stage = 'framed';
+        bone = null;
+        zoom.reset();
+        skull?.setZoom(1);
       }
     }
+  } else {
+    clap.update([]);
   }
   const quadPath = () => {
     ctx.beginPath();

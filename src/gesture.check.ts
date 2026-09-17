@@ -5,6 +5,7 @@ import {
   FingerCount,
   LateralExit,
   Latch,
+  PinchZoom,
   boundsOf,
   countExtended,
   faceBasis,
@@ -365,4 +366,24 @@ assert.equal(pinch([{ x: 0, y: 0 }]), null, 'a partial hand cannot pinch');
   assert.equal(c.update([at(230, 200), at(250, 200)]), true, 'apart and together again claps');
 }
 
-console.log('gesture + palette + pose + study checks passed');
+{
+  const z = new PinchZoom();
+  const at0 = { x: 200, y: 300 };
+  // The first frame of a grab only takes the reference; it must not jump.
+  assert.equal(z.update(at0, { x: 300, y: 300 }), 1, 'the grab starts where it was');
+  assert.equal(z.update(at0, { x: 400, y: 300 }), 2, 'twice as far apart is twice the size');
+  assert.equal(z.update(at0, { x: 250, y: 300 }), 0.5, 'half as far is half');
+  assert.equal(z.update(at0, { x: 10000, y: 300 }), 4, 'clamped at the top');
+  assert.equal(z.update(at0, { x: 201, y: 300 }), 0.35, 'clamped at the bottom');
+
+  // Letting go and grabbing again carries on from here rather than snapping
+  // back to 1 — the thing that makes a zoom usable in more than one pull.
+  z.release();
+  assert.equal(z.update(at0, { x: 300, y: 300 }), 0.35, 'the new grab holds the old scale');
+  assert.equal(z.update(at0, { x: 600, y: 300 }), 1.4, 'and scales on from it');
+
+  z.reset();
+  assert.equal(z.scale, 1, 'reset is life size');
+}
+
+console.log('gesture + palette + pose + study + zoom checks passed');

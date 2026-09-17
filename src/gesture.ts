@@ -273,3 +273,54 @@ export class Clap {
     return clap;
   }
 }
+
+/**
+ * Two pinched hands moving apart or together, as a scale.
+ *
+ * The phone gesture, with the phone's own manners: the grab is what sets the
+ * reference, not the frame the fingers first closed on, so a zoom picks up
+ * where the last one left off instead of snapping back to 1 each time. One
+ * pinch is still a pinch — this only wakes on two.
+ */
+export class PinchZoom {
+  #min: number;
+  #max: number;
+  #ref = 0;
+  #base = 1;
+  #scale = 1;
+
+  constructor(min = 0.35, max = 4) {
+    this.#min = min;
+    this.#max = max;
+  }
+
+  get scale(): number {
+    return this.#scale;
+  }
+
+  /** Feed the two pinch points while both hands are pinching. */
+  update(a: Pt, b: Pt): number {
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (d < 1) return this.#scale;
+    if (this.#ref === 0) {
+      // First frame of this grab: remember where it started from.
+      this.#ref = d;
+      this.#base = this.#scale;
+      return this.#scale;
+    }
+    this.#scale = Math.min(this.#max, Math.max(this.#min, (this.#base * d) / this.#ref));
+    return this.#scale;
+  }
+
+  /** Let go. The next grab starts from the scale this one reached. */
+  release(): void {
+    this.#ref = 0;
+  }
+
+  /** Back to life size. */
+  reset(): void {
+    this.#ref = 0;
+    this.#base = 1;
+    this.#scale = 1;
+  }
+}
