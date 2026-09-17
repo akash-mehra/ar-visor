@@ -193,6 +193,23 @@ frame's four anchors, with nothing drawn on top. It is the quickest way to see
 whether a gesture failed because the pose was wrong or because tracking lost
 the hand.
 
+**Full screen and install** are both the platform's own: the Fullscreen API
+for the tab, and a manifest for the home screen. Neither button shows in an
+installed window — it already launches without browser chrome — and that is
+decided once at startup rather than watched, because browsers disagree about
+whether `display-mode: fullscreen` also matches a page that called
+`requestFullscreen`, and one that says yes would hide the button the moment it
+was used, taking the way back out with it. The fullscreen label follows the
+document rather than the button, since Escape and the system back gesture also
+leave.
+
+Nothing is cached offline. The landmark models and the wasm come from a CDN, so
+an installed copy is a launcher that starts without an address bar, not an app
+that runs without a network — which is why there is no service worker here.
+The manifest is checked by `npm test`: a wrong icon path or a mis-declared size
+costs the install prompt silently, with the page working perfectly in every
+other way.
+
 **Recording** writes webm from `canvas.captureStream`, so it captures what the
 canvas shows rather than the raw camera. A fast double blink is the shutter,
 counted on the eye reopening rather than closing — that is the edge that means
@@ -204,7 +221,7 @@ pair. The hands are usually busy holding the thing worth recording.
 ```bash
 npm install
 npm run dev     # then open the printed LAN URL on the tablet
-npm test        # gesture + palette + pose + study + zoom checks
+npm test        # gesture + palette + pose + study + zoom + manifest checks
 ```
 
 ## Testing on an Android tablet
@@ -221,7 +238,9 @@ the tablet*: it counts as a secure context, so the camera works, and edits
 still hot-reload.
 
 **No cable** — push to `main` and open the Pages URL (HTTPS). Slower to
-iterate, but nothing to set up.
+iterate, but nothing to set up. From there the dock's **Install** button puts
+it on the home screen, where it launches fullscreen with no address bar; the
+button only appears once the browser says the page qualifies.
 
 Then: tap **Start camera**, grant the permission, and hold both hands up to
 frame your face. The

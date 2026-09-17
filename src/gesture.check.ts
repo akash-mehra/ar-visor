@@ -1,5 +1,6 @@
 // Checks for gesture.ts and palette.ts. Run: npm test
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   Clap,
   FingerCount,
@@ -462,4 +463,31 @@ for (let gap = 0; gap <= 80; gap++) {
 }
 assert.deepEqual(coverFit(0, 0, 100, 100), { scale: 1, x: 0, y: 0 }, 'no canvas, no crash');
 
-console.log('gesture + palette + pose + study + zoom + ui checks passed');
+// --------------------------------------------------------- installable ----
+// The manifest is data, and a wrong path or a mis-declared size costs the
+// install button silently: Chrome just stops offering it, with the page
+// working perfectly in every other way. Cheaper to read the PNG headers here.
+{
+  const read = (f: string) => readFileSync(new URL(`../public/${f}`, import.meta.url));
+  const manifest = JSON.parse(read('manifest.webmanifest').toString());
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+
+  assert.ok(html.includes('rel="manifest"'), 'the page has to link the manifest to be installable');
+  assert.ok(manifest.name && manifest.start_url && manifest.display, 'manifest is missing a required field');
+
+  const sizes = new Set<string>();
+  for (const icon of manifest.icons) {
+    const png = read(icon.src);
+    // PNG: 8-byte signature, then the IHDR length/type, then width and height.
+    assert.equal(png.readUInt32BE(0), 0x89504e47, `${icon.src} is not a PNG`);
+    const got = `${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`;
+    assert.equal(got, icon.sizes, `${icon.src} is ${got}, declared ${icon.sizes}`);
+    sizes.add(got);
+  }
+  // Chrome wants both of these before it will offer an install at all.
+  for (const want of ['192x192', '512x512']) {
+    assert.ok(sizes.has(want), `no ${want} icon, so there is no install prompt`);
+  }
+}
+
+console.log('gesture + palette + pose + study + zoom + ui + manifest checks passed');
