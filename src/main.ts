@@ -6,7 +6,16 @@ import {
   type HandLandmarkerResult,
   type NormalizedLandmark
 } from '@mediapipe/tasks-vision';
-import { FingerCount, Latch, countExtended, frameQuad, type Pt } from './gesture';
+import {
+  Clap,
+  FingerCount,
+  LateralExit,
+  Latch,
+  countExtended,
+  frameQuad,
+  pinch,
+  type Pt
+} from './gesture';
 import {
   ANATOMY,
   Wipe,
@@ -32,15 +41,27 @@ const modeBtn = document.getElementById('mode') as HTMLButtonElement;
 const status = document.getElementById('status') as HTMLParagraphElement;
 const ctx = canvas.getContext('2d', { alpha: false })!;
 
-// Spreading the hands separates the bones. The frame is already held between
-// thumb and index, so widening it is one continuous motion rather than a
-// second gesture to learn — and a fist still selects the bone layer, because
-// the frame is measured from fingertips and the count from extension.
-// Multiples of the face's own width, so it holds at any distance from the
-// camera. ponytail: guessed at, wants calibrating against real arms.
-const SPREAD_REST = 1.6;
-const SPREAD_FULL = 3.0;
+/**
+ * Two ways to hold the app.
+ *
+ * `framed` is the hand-held frame: fingers pick the layer, both hands carry
+ * the window. `study` is what carrying that window off the sides of the screen
+ * leaves behind — the frame fills the display and stops moving, the skull is
+ * blown apart, and the counting stops so a hand reaching in to point at a bone
+ * cannot change the layer under itself. Only a pinch and a clap are read.
+ */
+type Stage = 'framed' | 'study';
 
+const BONE = ANATOMY.layers[ANATOMY.layers.length - 1];
+/** Eased per frame rather than over a clock: at 30fps it settles in ~0.4s. */
+const EXPLODE_EASE = 0.12;
+
+let stage: Stage = 'framed';
+let explode = 0;
+let bone: string | null = null;
+
+const exit = new LateralExit();
+const clap = new Clap();
 const counter = new FingerCount();
 // Blink and jaw scores hover, so each gets a trigger rather than a threshold.
 const blink = new Latch(0.5, 0.3);
@@ -180,18 +201,63 @@ function loop() {
     mouth: mouth.update(score('jawOpen'))
   };
 
-  const layer = layerFor(ANATOMY, counter.update(lead < 0 ? null : countExtended(handsPx[lead])));
+  // In study the count is not read at all, so a hand reaching in to pinch
+  // cannot change the layer out from under the thing it is pointing at.
+  const picked =
+    stage === 'study'
+      ? BONE
+      : layerFor(ANATOMY, counter.update(lead < 0 ? null : countExtended(handsPx[lead])));
+
+  // Carrying the frame out through the sides blows the skull apart; a clap
+  // puts it back. Only ever entered from bone — there is nothing to explode
+  // under the other layers.
+  if (stage === 'framed') {
+    if (picked.name === BONE.name && exit.update(handsPx, canvas.width, t)) {
+      stage = 'study';
+      bone = null;
+    }
+  } else if (clap.update(handsPx)) {
+    stage = 'framed';
+    bone = null;
+  }
+
+  // A clap lands with the hands together and nothing sensible to count, so the
+  // frame it leaves on is still bone; the next one reads the hand properly.
+  const layer = stage === 'study' ? BONE : picked;
   const { from, to, k } = wipe.update(layer, t);
-  status.textContent = skull?.error ?? layer.name;
+
+  explode += ((stage === 'study' ? 1 : 0) - explode) * EXPLODE_EASE;
+  skull?.setExplode(explode);
+
+  status.textContent =
+    skull?.error ??
+    (stage === 'study' ? bone ?? 'pinch a bone · clap to go back' : layer.name);
 
   // Converted once: a wipe paints both layers, and the face mesh is 478 points.
   const facePx = faceRes.faceLandmarks[0] ? px(faceRes.faceLandmarks[0]) : null;
-  const quad = frameQuad(handsPx);
-  if (skull && quad && facePx) {
-    const frame = Math.hypot(quad[1].x - quad[0].x, quad[1].y - quad[0].y);
-    const cheeks = Math.hypot(facePx[454].x - facePx[234].x, facePx[454].y - facePx[234].y);
-    const spread = cheeks > 1 ? frame / cheeks : 0;
-    skull.setExplode((spread - SPREAD_REST) / (SPREAD_FULL - SPREAD_REST));
+  // Study fills the screen with the frame, so every clip, sheet and wipe below
+  // carries on working against a quad that simply happens to be the display.
+  const quad =
+    stage === 'study'
+      ? [
+          { x: 0, y: 0 },
+          { x: canvas.width, y: 0 },
+          { x: canvas.width, y: canvas.height },
+          { x: 0, y: canvas.height }
+        ]
+      : frameQuad(handsPx);
+
+  // A pinch names the bone under the fingertips. A pinch that catches nothing
+  // clears the label, so the reading always belongs to the last thing pinched
+  // rather than going stale on screen.
+  if (stage === 'study' && skull) {
+    for (const hand of handsPx) {
+      const p = pinch(hand);
+      if (p) {
+        bone = skull.nameAt(p.x, p.y);
+        break;
+      }
+    }
   }
   const quadPath = () => {
     ctx.beginPath();
@@ -206,7 +272,10 @@ function loop() {
     quadPath();
     ctx.clip();
     if (l.face && facePx) l.face(ctx, facePx, expr);
-    if (l.hand) for (const h of handsPx) l.hand(ctx, h, expr);
+    // In study the hands are inside the frame rather than holding it, and a
+    // pair of drawn skeleton hands over the skull is just something else to
+    // see past while trying to pinch a bone.
+    if (l.hand && stage === 'framed') for (const h of handsPx) l.hand(ctx, h, expr);
     ctx.restore();
   };
   const band = (l: Layer, top: number, bottom: number) => {
@@ -231,15 +300,19 @@ function loop() {
     quadPath();
     ctx.fillStyle = sheeted ? 'rgba(5,7,10,0.55)' : 'rgba(255,255,255,0.08)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    // Mark the anchors themselves, so a screenshot shows where they landed.
-    ctx.fillStyle = 'rgba(255,255,255,0.92)';
-    for (const p of quad) {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, canvas.width / 110, 0, Math.PI * 2);
-      ctx.fill();
+    // The edge and its anchors are the hand-held frame's own furniture; in
+    // study they would just be a box drawn around the screen.
+    if (stage === 'framed') {
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      // Mark the anchors themselves, so a screenshot shows where they landed.
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      for (const p of quad) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, canvas.width / 110, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
   }
   if (from) {

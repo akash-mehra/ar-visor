@@ -6,7 +6,9 @@ import {
   Matrix4,
   Mesh,
   OrthographicCamera,
+  Raycaster,
   Scene,
+  Vector2,
   Vector3,
   WebGLRenderer
 } from 'three';
@@ -45,8 +47,30 @@ export type Skull = {
   bones: number;
   /** 0 rests, 1 fully separated. */
   setExplode(t: number): void;
+  /** The bone under a canvas point, named for reading. */
+  nameAt(x: number, y: number): string | null;
   draw: Renderer;
 };
+
+/**
+ * Blender's own suffixes, spelled out: "Zygomatic bone.r" is a fine name for
+ * a mesh and a poor one for a label.
+ *
+ * Read off userData rather than the object's name. GLTFLoader runs node names
+ * through sanitizeNodeName, which turns spaces into underscores and deletes
+ * dots outright, so "Parietal bone.l" reaches Object3D.name as
+ * "Parietal_bonel" — and the side, by then, is an ordinary letter at the end
+ * of a word with nothing to tell it apart from spelling. The loader keeps the
+ * original on userData for exactly this.
+ */
+function label(mesh: Mesh): string {
+  const raw = typeof mesh.userData?.name === 'string' ? mesh.userData.name : mesh.name;
+  return raw
+    .replace(/_/g, ' ')
+    .replace(/\.\d+$/, '')
+    .replace(/\.([lr])$/i, (_, side: string) =>
+      side.toLowerCase() === 'l' ? ' (left)' : ' (right)');
+}
 
 type Part = { mesh: Mesh; out: Vector3 };
 
@@ -56,9 +80,18 @@ export async function loadSkull(url: string, dracoPath: string): Promise<Skull> 
     error: null,
     bones: 0,
     setExplode: () => {},
+    nameAt: () => null,
     draw: () => {}
   };
 
+  // setDecoderPath looks redundant — DRACOLoader already defaults to a
+  // module-level `new URL('../libs/draco/…', import.meta.url)`, which the
+  // bundler resolves and emits from our own origin. It is not. That default
+  // only survives a production build: under the dev server import.meta.url
+  // points into vite's pre-bundle directory, `../libs/draco/` resolves to
+  // nothing, and the 404 comes back as index.html — which the decoder then
+  // tries to run, for a `SyntaxError: Unexpected token '<'` and no skull.
+  // A copy in public/ resolves the same way in both.
   const draco = new DRACOLoader().setDecoderPath(dracoPath);
   const loader = new GLTFLoader().setDRACOLoader(draco);
 
@@ -113,6 +146,20 @@ export async function loadSkull(url: string, dracoPath: string): Promise<Skull> 
   let explode = 0;
   state.setExplode = (t) => {
     explode = Math.min(1, Math.max(0, t));
+  };
+
+  // Pinching reads the bone under the fingertips. Landmarks and the 3D are
+  // both in unmirrored video space — the mirror is applied once, to the blit —
+  // so a pinch point needs no flipping before it is cast.
+  const meshes = parts.map((p) => p.mesh);
+  const ray = new Raycaster();
+  const ndc = new Vector2();
+  state.nameAt = (x, y) => {
+    if (!gl.width || !gl.height) return null;
+    ndc.set((x / gl.width) * 2 - 1, -(y / gl.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const hit = ray.intersectObjects(meshes, false)[0];
+    return hit ? label(hit.object as Mesh) : null;
   };
 
   const basisMatrix = new Matrix4();
