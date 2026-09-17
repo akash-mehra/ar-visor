@@ -14,6 +14,7 @@ import {
   faceBasis,
   frameQuad,
   pinch,
+  point,
   type Pt,
   type Vec3
 } from './gesture.ts';
@@ -358,6 +359,29 @@ const W = 480;
 assert.equal(pinch(at(100, 100, 40)), null, 'tips apart is not a pinch');
 assert.deepEqual(pinch(at(100, 100, 10)), { x: 100, y: 100 }, 'tips together, point between');
 assert.equal(pinch([{ x: 0, y: 0 }]), null, 'a partial hand cannot pinch');
+
+// A point is the index out with the thumb clear of it. `at` leaves every other
+// landmark on the wrist, which reads as an extended index over its own PIP and
+// three curled fingers — the pose, with the thumb gap the only variable.
+assert.deepEqual(point(at(100, 100, 40)), { x: 120, y: 100 }, 'the fingertip is the point');
+assert.equal(point(at(100, 100, 10)), null, 'thumb against the index is a pinch, not a point');
+assert.equal(point([{ x: 0, y: 0 }]), null, 'a partial hand cannot point');
+{
+  const spread = at(100, 100, 40);
+  for (const t of [12, 16, 20]) spread[t] = { x: 100, y: 40 }; // other fingers out
+  assert.equal(point(spread), null, 'an open hand is not a point');
+  const curled = at(100, 100, 40);
+  curled[6] = { x: 100, y: 40 }; // index PIP past its own tip
+  assert.equal(point(curled), null, 'a curled index is not a point');
+}
+// The property the whole gesture split rests on: no hand is both, at any gap.
+// A two-handed pinch passes through a one-handed pinch at each end of itself,
+// so counting pinched hands named a bone on the way into every zoom and again
+// on the way out. Shape cannot overlap the way a count does.
+for (let gap = 0; gap <= 80; gap++) {
+  const h = at(100, 100, gap);
+  assert.ok(!(pinch(h) && point(h)), `one hand pinches and points at gap ${gap}`);
+}
 
 {
   const c = new Clap();

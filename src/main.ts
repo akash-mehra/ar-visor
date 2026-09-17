@@ -16,6 +16,7 @@ import {
   countExtended,
   frameQuad,
   pinch,
+  point,
   type Pt
 } from './gesture';
 import {
@@ -81,9 +82,8 @@ type Stage = 'framed' | 'study' | 'single';
 const BONE = ANATOMY.layers[ANATOMY.layers.length - 1];
 /** Eased per frame rather than over a clock: at 30fps it settles in ~0.4s. */
 const EXPLODE_EASE = 0.12;
-/** Holding two pinches this still, this long, lifts a bone out. */
-const GRAB_HOLD = 500;
-const GRAB_STEADY = 0.1;
+/** Keeping a finger on one bone this long lifts it out. */
+const POINT_HOLD = 900;
 /** A drag across the screen is one full turn. */
 const SPIN_TURN = Math.PI * 2;
 /** Renderers all guard on length, so this is simply "no face this frame". */
@@ -92,9 +92,8 @@ const NO_FACE: Pt[] = [];
 let stage: Stage = 'framed';
 let explode = 0;
 let boneIdx = -1;
-let grabbed = -1;
-let grabSince = 0;
-let grabSpan = 0;
+let held = -1;
+let heldSince = 0;
 let dragFrom: Pt | null = null;
 let spinYaw = 0;
 let spinPitch = 0;
@@ -281,9 +280,9 @@ function loop() {
   status.textContent =
     skull?.error ??
     (stage === 'single'
-      ? 'Pinch and drag to turn · clap to go back'
+      ? 'Point and move to turn · pinch both hands to zoom · clap to go back'
       : stage === 'study'
-        ? 'Pinch to name · hold two on one bone to lift it out'
+        ? 'Point to name · keep pointing to lift it out · pinch both to zoom'
         : layer.name);
 
   // A double blink is a shutter, and it works in every stage — the hands are
@@ -304,67 +303,67 @@ function loop() {
         ]
       : frameQuad(handsPx);
 
-  // How many hands are pinching decides which gesture this is, which is what
-  // keeps them out of each other's way: two pinched hands can only be a zoom
-  // or a grab, one can only be a question or a turn, and a clap needs both
-  // hands open — so pulling the zoom shut cannot slam the door on the way out.
+  // One hand points, two hands pinch, and nothing does both.
+  //
+  // Counting pinched hands was the wrong split: a two-handed pinch passes
+  // through a one-handed one at each end of itself, so every zoom named a bone
+  // on the way in and again on the way out. Splitting on the shape of the hand
+  // instead makes the states exclusive by construction — a point needs the
+  // thumb clear of the index and a pinch needs it against, so the gap they are
+  // measured on has to cross the middle to get from one to the other, and a
+  // hand that is on its way to pinching is never mistaken for one that is
+  // asking a question.
   if (stage !== 'framed' && skull) {
     const pinched = handsPx.map((hand) => pinch(hand)).filter((p): p is Pt => p !== null);
+    const finger = handsPx.map((hand) => point(hand)).find((p): p is Pt => p !== null) ?? null;
+
     if (pinched.length >= 2) {
-      const span = Math.hypot(pinched[0].x - pinched[1].x, pinched[0].y - pinched[1].y);
       const z = zoom.update(pinched[0], pinched[1]);
       skull.setZoom(z);
       ui.zoom(z); // the slider is the same number, shown
       clap.update([]); // hands are busy; do not let the latch sit shut
       dragFrom = null;
+      held = -1;
+    } else {
+      zoom.release();
 
-      // Both hands on the same bone, held still, lifts it out of the skull.
-      // Steadiness is what tells it from a zoom: a zoom changes the span by
-      // definition, so a span that has not moved is not one. Running both at
-      // once costs nothing, because a zoom that holds still does not zoom.
-      if (stage === 'study') {
-        const a = skull.pickAt(pinched[0].x, pinched[0].y);
-        const b = skull.pickAt(pinched[1].x, pinched[1].y);
-        const both = a >= 0 && a === b ? a : -1;
-        const steady = grabSpan > 0 && Math.abs(span - grabSpan) < grabSpan * GRAB_STEADY;
-        if (both >= 0 && both === grabbed && steady) {
-          if (t - grabSince > GRAB_HOLD) {
+      if (finger && stage === 'single') {
+        // Drag turns the bone. The canvas is mirrored, so screen-right is a
+        // falling x in landmark space — negating it puts the turn the way
+        // round the hand expects.
+        if (dragFrom) {
+          spinYaw -= ((finger.x - dragFrom.x) * SPIN_TURN) / canvas.width;
+          spinPitch += ((finger.y - dragFrom.y) * SPIN_TURN) / canvas.height;
+          skull.setSpin(spinYaw, spinPitch);
+        }
+        dragFrom = finger;
+      } else if (finger) {
+        dragFrom = null;
+        // Naming and lifting out are the same gesture held longer, so there is
+        // nothing extra to learn: point to read the name, keep pointing at the
+        // same bone and it comes out on its own. Pointing at nothing clears
+        // the label rather than leaving a stale reading on screen.
+        const i = skull.pickAt(finger.x, finger.y);
+        boneIdx = i;
+        if (i >= 0 && i === held) {
+          if (t - heldSince > POINT_HOLD) {
             stage = 'single';
-            skull.isolate(both);
-            boneIdx = both;
+            skull.isolate(i);
             spinYaw = 0;
             spinPitch = 0;
             skull.setSpin(0, 0);
             zoom.reset();
             skull.setZoom(1);
             ui.zoom(1);
+            held = -1;
           }
         } else {
-          grabbed = both;
-          grabSince = t;
-          grabSpan = span;
+          held = i;
+          heldSince = t;
         }
-      }
-    } else {
-      zoom.release();
-      grabbed = -1;
-      grabSpan = 0;
-
-      if (pinched.length === 1 && stage === 'single') {
-        // Drag turns the bone. The canvas is mirrored, so screen-right is a
-        // falling x in landmark space — negating it puts the turn the way
-        // round the hand expects.
-        if (dragFrom) {
-          spinYaw -= ((pinched[0].x - dragFrom.x) * SPIN_TURN) / canvas.width;
-          spinPitch += ((pinched[0].y - dragFrom.y) * SPIN_TURN) / canvas.height;
-          skull.setSpin(spinYaw, spinPitch);
-        }
-        dragFrom = pinched[0];
       } else {
         dragFrom = null;
-        // A pinch that catches nothing clears the label, so the reading always
-        // belongs to the last thing pinched rather than going stale on screen.
-        if (pinched.length === 1) boneIdx = skull.pickAt(pinched[0].x, pinched[0].y);
+        held = -1;
       }
 
       // One step back rather than all the way out: a single bone returns to
@@ -378,6 +377,7 @@ function loop() {
         }
         boneIdx = -1;
         dragFrom = null;
+        held = -1;
         zoom.reset();
         skull.setZoom(1);
         ui.zoom(1);
