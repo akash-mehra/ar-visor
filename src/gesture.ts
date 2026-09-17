@@ -120,3 +120,62 @@ export function boundsOf(quad: Pt[], w: number, h: number): Box {
     h: Math.min(h, Math.ceil(Math.max(...ys))) - y
   };
 }
+
+/** A direction or point in the landmark space, y-up and right-handed. */
+export type Vec3 = { x: number; y: number; z: number };
+
+/**
+ * The head's own axes, read off four rigid landmarks.
+ *
+ * MediaPipe also hands out a 4x4 head-pose matrix, but its row/column order
+ * is the sort of thing that is only settled by a device, and a transposed
+ * rotation is its own inverse — the head would turn the wrong way and the
+ * code would look right. Four landmarks we already convert every frame give
+ * the same basis with nothing to get backwards, and they can be checked here
+ * against numbers rather than against a tablet.
+ *
+ * 234 and 454 are the face oval at its widest, 10 the forehead and 152 the
+ * chin: all four sit on bone, so expression does not move them.
+ *
+ * `width` is measured in 3D, so it holds up as the head turns — the 2D
+ * distance between the temples collapses on a profile.
+ */
+export type Basis = { right: Vec3; up: Vec3; forward: Vec3; centre: Vec3; width: number };
+
+const sub = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
+const cross = (a: Vec3, b: Vec3): Vec3 => ({
+  x: a.y * b.z - a.z * b.y,
+  y: a.z * b.x - a.x * b.z,
+  z: a.x * b.y - a.y * b.x
+});
+const len = (a: Vec3) => Math.hypot(a.x, a.y, a.z);
+const unit = (a: Vec3): Vec3 => {
+  const n = len(a);
+  return n < 1e-9 ? { x: 0, y: 0, z: 0 } : { x: a.x / n, y: a.y / n, z: a.z / n };
+};
+
+export function faceBasis(lm: Pt[]): Basis | null {
+  if (lm.length < 468) return null;
+  // Canvas y grows downward and MediaPipe's z grows away from the camera;
+  // both are flipped here so the basis comes out right-handed and y-up, which
+  // is what glTF models are authored in.
+  const v = (i: number): Vec3 => ({ x: lm[i].x, y: -lm[i].y, z: -(lm[i].z ?? 0) });
+  const l = v(454), r = v(234), top = v(10), chin = v(152);
+
+  const right = unit(sub(l, r));
+  const up0 = unit(sub(top, chin));
+  // Cross first, then rebuild up from it: the temple-to-temple and
+  // chin-to-forehead lines are close to perpendicular but never exactly, and
+  // an un-squared basis shears the model.
+  const forward = unit(cross(right, up0));
+  if (len(forward) < 1e-9) return null;
+  const up = cross(forward, right);
+
+  return {
+    right,
+    up,
+    forward,
+    centre: { x: (l.x + r.x) / 2, y: (l.y + r.y) / 2, z: (l.z + r.z) / 2 },
+    width: len(sub(l, r))
+  };
+}

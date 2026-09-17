@@ -1,0 +1,162 @@
+import {
+  AmbientLight,
+  Box3,
+  DirectionalLight,
+  Group,
+  Matrix4,
+  Mesh,
+  OrthographicCamera,
+  Scene,
+  Vector3,
+  WebGLRenderer
+} from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { faceBasis, type Pt } from './gesture';
+import type { Renderer } from './palette';
+
+/**
+ * The bone layer as an actual skull rather than a drawn radiograph.
+ *
+ * It renders to its own WebGL canvas and the result is blitted into the 2D
+ * context the rest of the palette draws into. That keeps one clipping path,
+ * one mirror transform and one wipe for every layer: the 3D arrives as just
+ * another image to draw inside the frame, and the working 2D pipeline is not
+ * touched. The model is posed with an orthographic camera in canvas pixels,
+ * so placing it is the same arithmetic the 2D layers already do — and it
+ * sidesteps having to match whatever projection MediaPipe assumes.
+ *
+ * ponytail: a full-canvas texture upload every frame. Fine at 640x480; if the
+ * tablet complains, the fix is a real DOM canvas with a CSS clip-path instead
+ * of the blit.
+ */
+
+/** Sized off the model, tuned on the device. */
+const WIDTH_RATIO = 1; // skull width against the temple-to-temple landmarks
+const FORWARD_OFFSET = 0; // + moves the skull away from the camera
+const UP_OFFSET = 0; // + raises it, in face widths
+/** How far a bone travels at full spread, as a fraction of the skull. */
+const EXPLODE_SPAN = 0.6;
+
+export type Skull = {
+  ready: boolean;
+  error: string | null;
+  /** How many separable bones the file turned out to hold. */
+  bones: number;
+  /** 0 rests, 1 fully separated. */
+  setExplode(t: number): void;
+  draw: Renderer;
+};
+
+type Part = { mesh: Mesh; out: Vector3 };
+
+export async function loadSkull(url: string, dracoPath: string): Promise<Skull> {
+  const state: Skull = {
+    ready: false,
+    error: null,
+    bones: 0,
+    setExplode: () => {},
+    draw: () => {}
+  };
+
+  const draco = new DRACOLoader().setDecoderPath(dracoPath);
+  const loader = new GLTFLoader().setDRACOLoader(draco);
+
+  let gltf;
+  try {
+    gltf = await loader.loadAsync(url);
+  } catch (e) {
+    state.error = `skull: ${(e as Error).message}`;
+    return state;
+  } finally {
+    draco.dispose();
+  }
+
+  // The model is authored standing on a floor, so it arrives a metre and a
+  // half up. Re-centre it inside a group and drive the group instead.
+  const root = new Group();
+  root.add(gltf.scene);
+
+  const box = new Box3().setFromObject(gltf.scene);
+  const centre = box.getCenter(new Vector3());
+  const size = box.getSize(new Vector3());
+  gltf.scene.position.sub(centre);
+
+  // Each bone separates straight out from the middle of the skull. Taking the
+  // direction from its own geometry means the file needs no authored explode
+  // hints, and bones added or removed later need no code change.
+  const parts: Part[] = [];
+  gltf.scene.traverse((o) => {
+    const m = o as Mesh;
+    if (!m.isMesh) return;
+    const c = new Box3().setFromObject(m).getCenter(new Vector3()).sub(centre);
+    parts.push({ mesh: m, out: c.lengthSq() < 1e-12 ? new Vector3() : c.normalize() });
+  });
+  state.bones = parts.length;
+
+  const scene = new Scene();
+  scene.add(root);
+  // Flat ambient plus one key light: enough to read the form without pretending
+  // to be a lighting rig that matches the room.
+  scene.add(new AmbientLight(0xffffff, 1.6));
+  const key = new DirectionalLight(0xffffff, 2.2);
+  key.position.set(0.3, 0.6, 1);
+  scene.add(key);
+
+  const camera = new OrthographicCamera(-1, 1, 1, -1, 1, 4000);
+  camera.position.z = 2000;
+
+  const gl = document.createElement('canvas');
+  const renderer = new WebGLRenderer({ canvas: gl, alpha: true, antialias: true });
+  renderer.setClearAlpha(0);
+
+  let explode = 0;
+  state.setExplode = (t) => {
+    explode = Math.min(1, Math.max(0, t));
+  };
+
+  const basisMatrix = new Matrix4();
+  const vRight = new Vector3();
+  const vUp = new Vector3();
+  const vFwd = new Vector3();
+
+  state.draw = (ctx, lm) => {
+    const b = faceBasis(lm as Pt[]);
+    if (!b || b.width < 1) return;
+
+    const w = ctx.canvas.width;
+    const h = ctx.canvas.height;
+    if (gl.width !== w || gl.height !== h) {
+      renderer.setSize(w, h, false);
+      camera.left = -w / 2;
+      camera.right = w / 2;
+      camera.top = h / 2;
+      camera.bottom = -h / 2;
+      camera.updateProjectionMatrix();
+    }
+
+    // Model metres to canvas pixels, off the temple-to-temple span.
+    const scale = (b.width * WIDTH_RATIO) / size.x;
+    root.scale.setScalar(scale);
+
+    vRight.set(b.right.x, b.right.y, b.right.z);
+    vUp.set(b.up.x, b.up.y, b.up.z);
+    vFwd.set(b.forward.x, b.forward.y, b.forward.z);
+    root.quaternion.setFromRotationMatrix(basisMatrix.makeBasis(vRight, vUp, vFwd));
+
+    // Landmark space is canvas pixels with y down; the camera is centred with
+    // y up, so the origin moves to the middle and y flips.
+    root.position.set(b.centre.x - w / 2, b.centre.y + h / 2, 0);
+    root.position.addScaledVector(vFwd, -FORWARD_OFFSET * b.width);
+    root.position.addScaledVector(vUp, UP_OFFSET * b.width);
+
+    const travel = explode * EXPLODE_SPAN * size.length();
+    for (const p of parts) p.mesh.position.copy(p.out).multiplyScalar(travel);
+
+    renderer.render(scene, camera);
+    ctx.drawImage(gl, 0, 0, w, h);
+  };
+
+  state.ready = true;
+  return state;
+}

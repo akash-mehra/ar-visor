@@ -1,6 +1,15 @@
 // Checks for gesture.ts and palette.ts. Run: npm test
 import assert from 'node:assert/strict';
-import { FingerCount, Latch, boundsOf, countExtended, frameQuad, type Pt } from './gesture.ts';
+import {
+  FingerCount,
+  Latch,
+  boundsOf,
+  countExtended,
+  faceBasis,
+  frameQuad,
+  type Pt,
+  type Vec3
+} from './gesture.ts';
 import { ANATOMY, Wipe, layerFor, setMode } from './palette.ts';
 
 /**
@@ -218,4 +227,76 @@ assert.equal(latch.update(0.31), true, 'still holds just above the fall');
 assert.equal(latch.update(0.3), false, 'falls');
 assert.equal(latch.update(0.4), false, 'and stays off in the dead zone');
 
-console.log('gesture + palette checks passed');
+// --------------------------------------------------------------- pose -----
+// A synthetic head. The four landmarks faceBasis reads are placed by rotating
+// a canonical front-facing set, so the basis it recovers can be checked
+// against the rotation that produced it rather than against a tablet.
+function head(yaw = 0, roll = 0): Pt[] {
+  const lm: Pt[] = Array.from({ length: 468 }, () => ({ x: 0, y: 0, z: 0 }));
+  // Canvas pixels: x right, y down, z away from the camera.
+  const put = (i: number, x: number, y: number, z: number) => {
+    const xr = x * Math.cos(yaw) + z * Math.sin(yaw);
+    const zr = -x * Math.sin(yaw) + z * Math.cos(yaw);
+    lm[i] = {
+      x: 200 + xr * Math.cos(roll) - y * Math.sin(roll),
+      y: 200 + xr * Math.sin(roll) + y * Math.cos(roll),
+      z: zr
+    };
+  };
+  put(234, -50, 0, 0); // the subject's right temple, to the left in the image
+  put(454, 50, 0, 0);
+  put(10, 0, -60, 0); // forehead
+  put(152, 0, 60, 0); // chin
+  return lm;
+}
+
+const dot = (a: Vec3, b: Vec3) => a.x * b.x + a.y * b.y + a.z * b.z;
+const near = (got: number, want: number, what: string, eps = 1e-6) =>
+  assert.ok(Math.abs(got - want) < eps, `${what}: ${got} != ${want}`);
+
+assert.equal(faceBasis([{ x: 0, y: 0 }]), null, 'no basis without a full mesh');
+
+{
+  const b = faceBasis(head())!;
+  assert.ok(b, 'a front-facing head has a basis');
+  // Image x runs to the subject's left, which is where the model's +X points.
+  near(b.right.x, 1, 'right is +x');
+  near(b.up.y, 1, 'up is +y once the canvas flip is undone');
+  near(b.forward.z, 1, 'forward comes out of the face, towards the camera');
+  near(b.width, 100, 'width is the temple span');
+  near(b.centre.x, 200, 'centre sits between the temples');
+}
+
+// Roll rotates the basis in the image plane and leaves forward alone.
+{
+  const b = faceBasis(head(0, Math.PI / 6))!;
+  near(b.right.x, Math.cos(Math.PI / 6), 'roll turns right');
+  near(b.right.y, -Math.sin(Math.PI / 6), 'y flips with the canvas');
+  near(b.forward.z, 1, 'roll does not move forward');
+  near(b.width, 100, 'roll does not change width');
+}
+
+// Yaw swings forward off the camera axis, and the 3D width holds up even
+// though the temples have visibly closed together in the image.
+{
+  const b = faceBasis(head(Math.PI / 4))!;
+  assert.ok(b.forward.z < 0.75, `yaw turns the face away: ${b.forward.z}`);
+  assert.ok(Math.abs(b.forward.x) > 0.5, `yaw swings forward sideways: ${b.forward.x}`);
+  near(b.width, 100, 'width is measured in 3D, so yaw does not shrink it', 1e-6);
+  const flat = Math.hypot(head(Math.PI / 4)[454].x - head(Math.PI / 4)[234].x, 0);
+  assert.ok(flat < 80, `the 2D span really has collapsed (${flat}), so that was worth checking`);
+}
+
+// Whatever the pose, the basis has to stay square or the model shears.
+for (const [yaw, roll] of [[0, 0], [0.5, 0], [0, 0.9], [0.7, -0.4], [1.2, 2.1]]) {
+  const b = faceBasis(head(yaw, roll))!;
+  const tag = `yaw ${yaw} roll ${roll}`;
+  for (const [n, v] of [['right', b.right], ['up', b.up], ['forward', b.forward]] as const) {
+    near(Math.hypot(v.x, v.y, v.z), 1, `${n} is unit at ${tag}`);
+  }
+  near(dot(b.right, b.up), 0, `right vs up at ${tag}`);
+  near(dot(b.right, b.forward), 0, `right vs forward at ${tag}`);
+  near(dot(b.up, b.forward), 0, `up vs forward at ${tag}`);
+}
+
+console.log('gesture + palette + pose checks passed');

@@ -7,7 +7,17 @@ import {
   type NormalizedLandmark
 } from '@mediapipe/tasks-vision';
 import { FingerCount, Latch, countExtended, frameQuad, type Pt } from './gesture';
-import { ANATOMY, Wipe, layerFor, setMode, setMuscleTexture, type Layer, type Mode } from './palette';
+import {
+  ANATOMY,
+  Wipe,
+  layerFor,
+  setBoneRenderer,
+  setMode,
+  setMuscleTexture,
+  type Layer,
+  type Mode
+} from './palette';
+import type { Skull } from './skull';
 
 const WASM_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
 const FACE_MODEL =
@@ -21,6 +31,15 @@ const startBtn = document.getElementById('start') as HTMLButtonElement;
 const modeBtn = document.getElementById('mode') as HTMLButtonElement;
 const status = document.getElementById('status') as HTMLParagraphElement;
 const ctx = canvas.getContext('2d', { alpha: false })!;
+
+// Spreading the hands separates the bones. The frame is already held between
+// thumb and index, so widening it is one continuous motion rather than a
+// second gesture to learn — and a fist still selects the bone layer, because
+// the frame is measured from fingertips and the count from extension.
+// Multiples of the face's own width, so it holds at any distance from the
+// camera. ponytail: guessed at, wants calibrating against real arms.
+const SPREAD_REST = 1.6;
+const SPREAD_FULL = 3.0;
 
 const counter = new FingerCount();
 // Blink and jaw scores hover, so each gets a trigger rather than a threshold.
@@ -38,6 +57,7 @@ const wipe = new Wipe();
 
 let face: FaceLandmarker;
 let hands: HandLandmarker;
+let skull: Skull | null = null;
 let live = false;
 
 /**
@@ -59,6 +79,18 @@ async function initTexture() {
   }
 }
 
+/**
+ * A megabyte of Draco-packed skull, so it is loaded once at startup rather
+ * than on the frame a fist first appears. A model that fails to load is not an
+ * error: the bone layer keeps drawing its radiograph.
+ */
+async function initSkull() {
+  const { loadSkull } = await import('./skull');
+  const base = import.meta.env.BASE_URL;
+  skull = await loadSkull(`${base}assets/skull.glb`, `${base}draco/`);
+  if (skull.ready) setBoneRenderer(skull.draw);
+}
+
 async function initModels() {
   const fileset = await FilesetResolver.forVisionTasks(WASM_CDN);
   [face, hands] = await Promise.all([
@@ -77,6 +109,7 @@ async function initModels() {
     })
   ]);
   await initTexture();
+  await initSkull();
   await face.setOptions({ runningMode: 'VIDEO' });
 }
 
@@ -149,11 +182,17 @@ function loop() {
 
   const layer = layerFor(ANATOMY, counter.update(lead < 0 ? null : countExtended(handsPx[lead])));
   const { from, to, k } = wipe.update(layer, t);
-  status.textContent = layer.name;
+  status.textContent = skull?.error ?? layer.name;
 
   // Converted once: a wipe paints both layers, and the face mesh is 478 points.
   const facePx = faceRes.faceLandmarks[0] ? px(faceRes.faceLandmarks[0]) : null;
   const quad = frameQuad(handsPx);
+  if (skull && quad && facePx) {
+    const frame = Math.hypot(quad[1].x - quad[0].x, quad[1].y - quad[0].y);
+    const cheeks = Math.hypot(facePx[454].x - facePx[234].x, facePx[454].y - facePx[234].y);
+    const spread = cheeks > 1 ? frame / cheeks : 0;
+    skull.setExplode((spread - SPREAD_REST) / (SPREAD_FULL - SPREAD_REST));
+  }
   const quadPath = () => {
     ctx.beginPath();
     quad!.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));

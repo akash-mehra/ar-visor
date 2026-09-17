@@ -440,7 +440,19 @@ const faceMuscle: Renderer = (ctx, lm) => {
 // --------------------------------------------------------------- bone -----
 // A radiograph, not a prop skull: the face goes dark and dense tissue lights
 // up through it, brightest where the head is thickest.
-const faceBone: Renderer = (ctx, lm) => {
+/**
+ * Set once a 3D skull has loaded, and it takes the bone layer over entirely.
+ * Same shape as setMuscleTexture: the art arrives late and asynchronously, and
+ * the drawn radiograph is what shows until it does — or for good, if the model
+ * fails to load.
+ */
+let boneModel: Renderer | null = null;
+export const setBoneRenderer = (r: Renderer | null) => {
+  boneModel = r;
+};
+
+const faceBone: Renderer = (ctx, lm, expr) => {
+  if (boneModel) return boneModel(ctx, lm, expr);
   if (lm.length < 468 || OVAL.length < 3) return;
   const at = faceSpace(lm);
   const s = faceScale(lm);
