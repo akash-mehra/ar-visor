@@ -67,6 +67,20 @@ Each bone's direction out of the skull comes from its own geometry, so the
 file needs no authored explode hints and bones added to it later need no code
 change.
 
+Separating the bones is also what carries the skull off the face, and the same
+value drives both: at rest it is sized to the temples and sits where the head
+is, fully apart it is centred and sized to the screen, and everything between
+is the blend. A view of a skull in pieces is not a view of a face, and scaling
+one to the other only means standing closer throws the far bones off the edge.
+Being centred is also what holds a bone still long enough to be pinched.
+
+How much room it needs is measured from where the bones actually end up rather
+than from a sphere around the model — they do not all travel the same distance,
+and fitting the bounding diagonal leaves the view about a third smaller than
+the screen allows. Across all three axes, not just the two on screen, because
+the head turns and its depth swings into view with it. Reading it off the
+geometry also means a re-exported model resizes itself.
+
 The model is Draco-compressed, and the decoder is served from `public/draco/`
 rather than a CDN. That copy looks redundant — `DRACOLoader` already defaults
 to a module-level `new URL('../libs/draco/…', import.meta.url)` that the
@@ -94,8 +108,15 @@ layer out from under it. Two gestures still work:
 
 | gesture | |
 |---|---|
-| **pinch** | names the bone under your fingertips |
+| **one pinch** | names the bone under your fingertips |
+| **two pinches** | zoom, by pulling them apart or together |
 | **clap** | back to the hand-held frame |
+
+How many hands are pinching is what keeps the three out of each other's way:
+two pinched hands can only be a zoom, one can only be a question, and a clap
+needs both hands open — so pulling the zoom shut cannot slam the door on the
+way out. A zoom picks up where the last one left off rather than snapping back
+to life size each time you re-grab.
 
 The pinch casts a ray into the scene at the point between thumb and index.
 Landmarks and the 3D are both in unmirrored video space — the mirror is
@@ -113,7 +134,7 @@ the side is an ordinary letter at the end of a word.
 ```bash
 npm install
 npm run dev     # then open the printed LAN URL on the tablet
-npm test        # gesture + palette + pose + study checks
+npm test        # gesture + palette + pose + study + zoom checks
 ```
 
 ## Testing on an Android tablet
