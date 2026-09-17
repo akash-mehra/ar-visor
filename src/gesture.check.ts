@@ -194,7 +194,7 @@ assert.ok(
 );
 assert.ok(displaced.calls.fill >= 1, 'displace still fills the face');
 
-// The frame's bounds are what the stylizer crops, so they must stay inside
+// The frame's bounds size whatever draws into it, so they must stay inside
 // the canvas however far outside it a hand reaches.
 assert.deepEqual(
   boundsOf([{ x: 10, y: 20 }, { x: 60, y: 30 }, { x: 60, y: 90 }, { x: 10, y: 80 }], 200, 200),

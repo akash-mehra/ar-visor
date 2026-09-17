@@ -23,20 +23,7 @@ inside the frame and covers the whole face oval, so only the layer reads. Skin
 is exempt: it is the bare camera, so there is nothing to read against. The
 bone layer is a radiograph either way, so it always covered the face.
 
-A button switches palette. **naruto** is the fun one: a character's own
-drawing replaces the face, anchored by landing the drawing's two irises on
-yours, which carries position, scale and roll together. It answers to your
-face — `jawOpen` swaps in the open-mouthed still, and a blink shuts the
-character's eyes.
-
-The blink needs no art of its own. Anime shuts an eye with a skin fill and one
-curved stroke, so it is drawn in the drawing's own coordinates under the
-plate's transform. That also sidesteps the real trap here: a closed-eye still
-from a *different* illustration of the same character will differ in head
-width, hair and collar, and the whole head visibly pops on every blink. Every
-state must be exported from one drawing.
-
-The **anatomy** palette is four layers deep. How many fingers you
+The anatomy palette is four layers deep. How many fingers you
 hold up picks one:
 
 | fingers | pose | layer |
@@ -57,25 +44,6 @@ texture coordinates, so each mesh triangle is drawn from the matching triangle
 of the art. No table of coordinates to keep in step with the image, and
 swapping the art needs no code change. Without the file, the layer falls back
 to drawing itself.
-
-## The AI filter (spike)
-
-A third button runs a neural stylizer over the framed region, rather than
-drawing anything from landmarks. It is a spike: the point is to find out
-whether per-frame inference is fast enough on the device, so it prints
-milliseconds per inference next to the layer name.
-
-The model and the runtime's own `.wasm` are both fetched at first press, not
-at startup — together they are tens of megabytes, and nobody who never presses
-the button should pay for it. Inference runs off the draw loop: a frame is
-submitted, the loop carries on, and the last result is composited until the
-next lands, so the camera stays live and the styled picture trails it.
-
-Only the frame's bounds are cropped and run. A model exported at a fixed size
-rejects every other size, so the size comes off the model where it declares
-one, and `SIZE` in `src/stylize.ts` applies only where the axis is dynamic.
-The status line names the backend and the size actually being run, so it is
-clear which happened.
 
 ## Dev
 

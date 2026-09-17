@@ -6,12 +6,11 @@
   "scripts": {
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
-    "test": "node --experimental-strip-types src/gesture.check.ts && python3 train/student_check.py",
+    "test": "node --experimental-strip-types src/gesture.check.ts",
     "preview": "vite preview --host"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "^0.10.14",
-    "onnxruntime-web": "^1.30.0"
+    "@mediapipe/tasks-vision": "^0.10.14"
   },
   "devDependencies": {
     "typescript": "^5.5.0",
