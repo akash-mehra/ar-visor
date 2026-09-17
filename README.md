@@ -63,25 +63,57 @@ transposed rotation is its own inverse — the head would turn the wrong way and
 the code would still look right — and four landmarks can be checked against
 numbers instead of against a tablet.
 
-**Spreading your hands separates the bones.** The frame is already held
-between thumb and index, so widening it is one motion rather than a second
-gesture; the frame measured against the face's own width drives how far the
-bones travel, in multiples of the face so it holds at any distance from the
-camera. A fist still picks the layer, because the frame is measured from
-fingertips and the count from extension.
-
 Each bone's direction out of the skull comes from its own geometry, so the
 file needs no authored explode hints and bones added to it later need no code
-change. The model is Draco-compressed; the decoder is served from
-`public/draco/` rather than a CDN. A model that fails to load is not an error —
-the bone layer falls back to drawing a radiograph.
+change.
+
+The model is Draco-compressed, and the decoder is served from `public/draco/`
+rather than a CDN. That copy looks redundant — `DRACOLoader` already defaults
+to a module-level `new URL('../libs/draco/…', import.meta.url)` that the
+bundler resolves and emits from our own origin — but that default only
+survives a production build. Under the dev server `import.meta.url` points
+into vite's pre-bundle directory, the relative path resolves to nothing, and
+the 404 comes back as `index.html`, which the decoder then tries to run. The
+copy in `public/` resolves the same way in both. A model that fails to load is
+not an error — the bone layer falls back to drawing a radiograph.
+
+## Study mode
+
+**Carry the frame off the sides of the screen and the skull comes apart.** On
+the bone layer, take both hands out through the left and right edges still
+holding the frame. Leaving through the top or bottom does nothing — neither
+wrist was near a lateral edge. Tracking rarely ends tidily, one hand usually
+being lost a frame or two before the other, so each side is remembered with a
+time of its own and the trigger is both sides having gone recently with
+nothing left on screen.
+
+What that leaves is a different way to hold the app. The frame fills the
+display and stops moving, the bones separate, and the finger count is not read
+at all — so a hand reaching back in to point at something cannot change the
+layer out from under it. Two gestures still work:
+
+| gesture | |
+|---|---|
+| **pinch** | names the bone under your fingertips |
+| **clap** | back to the hand-held frame |
+
+The pinch casts a ray into the scene at the point between thumb and index.
+Landmarks and the 3D are both in unmirrored video space — the mirror is
+applied once, to the blit — so the pinch point needs no flipping before it is
+cast. A pinch that catches nothing clears the label rather than leaving a
+stale reading on screen.
+
+Bone names come off `userData`, not `Object3D.name`: GLTFLoader runs node
+names through `sanitizeNodeName`, which turns spaces into underscores and
+deletes dots, so `Parietal bone.l` arrives as `Parietal_bonel` — and by then
+the side is an ordinary letter at the end of a word.
 
 ## Dev
 
 ```bash
 npm install
 npm run dev     # then open the printed LAN URL on the tablet
-npm test        # gesture + palette + pose checks
+npm test        # gesture + palette + pose + study checks
 ```
 
 ## Testing on an Android tablet

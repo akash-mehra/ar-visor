@@ -1,12 +1,15 @@
 // Checks for gesture.ts and palette.ts. Run: npm test
 import assert from 'node:assert/strict';
 import {
+  Clap,
   FingerCount,
+  LateralExit,
   Latch,
   boundsOf,
   countExtended,
   faceBasis,
   frameQuad,
+  pinch,
   type Pt,
   type Vec3
 } from './gesture.ts';
@@ -301,4 +304,65 @@ for (const [yaw, roll] of [[0, 0], [0.5, 0], [0, 0.9], [0.7, -0.4], [1.2, 2.1]])
   near(dot(b.up, b.forward), 0, `up vs forward at ${tag}`);
 }
 
-console.log('gesture + palette + pose checks passed');
+// ------------------------------------------------------ study gestures ----
+/** A hand with its wrist and palm placed, and its thumb/index tips apart. */
+function at(x: number, y: number, gap = 40): Pt[] {
+  const lm: Pt[] = Array.from({ length: 21 }, () => ({ x, y }));
+  lm[0] = { x, y };          // wrist
+  lm[9] = { x, y: y - 40 };  // middle MCP, so the palm is 40 long
+  lm[4] = { x: x - gap / 2, y };
+  lm[8] = { x: x + gap / 2, y };
+  return lm;
+}
+
+const W = 480;
+{
+  const e = new LateralExit();
+  // Hands present are never an exit, however close to the edge they are.
+  assert.equal(e.update([at(10, 200), at(470, 200)], W, 1000), false, 'still on screen');
+  // Both sides gone, nothing left: that is the gesture.
+  assert.equal(e.update([], W, 1040), true, 'both hands left sideways');
+  assert.equal(e.update([], W, 1080), false, 'and it fires once, not every frame after');
+}
+{
+  // Tracking drops one hand before the other, which is the whole reason the
+  // sides are timed separately rather than snapshotted together.
+  const e = new LateralExit();
+  e.update([at(10, 200), at(470, 200)], W, 1000);
+  e.update([at(470, 200)], W, 1020); // left hand already lost
+  assert.equal(e.update([], W, 1040), true, 'staggered loss still reads as a pair');
+}
+{
+  const e = new LateralExit();
+  e.update([at(240, 20), at(250, 30)], W, 1000); // up and out of the top
+  assert.equal(e.update([], W, 1040), false, 'leaving upwards is not a lateral exit');
+}
+{
+  const e = new LateralExit();
+  e.update([at(10, 200)], W, 1000);
+  e.update([at(470, 200)], W, 3000); // the other side, much later
+  assert.equal(e.update([], W, 3040), false, 'one side going stale does not count');
+}
+{
+  const e = new LateralExit();
+  e.update([at(10, 200), at(240, 200)], W, 1000); // one lateral, one central
+  assert.equal(e.update([], W, 1040), false, 'one side alone is not the gesture');
+}
+
+// A pinch is the tips together, measured against the palm so distance from
+// the camera does not change the verdict.
+assert.equal(pinch(at(100, 100, 40)), null, 'tips apart is not a pinch');
+assert.deepEqual(pinch(at(100, 100, 10)), { x: 100, y: 100 }, 'tips together, point between');
+assert.equal(pinch([{ x: 0, y: 0 }]), null, 'a partial hand cannot pinch');
+
+{
+  const c = new Clap();
+  assert.equal(c.update([at(100, 200)]), false, 'one hand cannot clap');
+  assert.equal(c.update([at(40, 200), at(400, 200)]), false, 'hands apart');
+  assert.equal(c.update([at(230, 200), at(250, 200)]), true, 'hands meet');
+  assert.equal(c.update([at(230, 200), at(250, 200)]), false, 'held together is still one clap');
+  c.update([at(40, 200), at(400, 200)]);
+  assert.equal(c.update([at(230, 200), at(250, 200)]), true, 'apart and together again claps');
+}
+
+console.log('gesture + palette + pose + study checks passed');

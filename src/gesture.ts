@@ -179,3 +179,97 @@ export function faceBasis(lm: Pt[]): Basis | null {
     width: len(sub(l, r))
   };
 }
+
+// ------------------------------------------------------- study gestures ---
+const WRIST = 0;
+const MIDDLE_MCP = 9;
+
+/** Palm length, as the yardstick every hand measurement is taken against. */
+const palmOf = (lm: Pt[]) => Math.hypot(lm[WRIST].x - lm[MIDDLE_MCP].x, lm[WRIST].y - lm[MIDDLE_MCP].y);
+
+/**
+ * Both hands carrying the frame out through the left and right edges — what
+ * blows the skull apart.
+ *
+ * Tracking does not end tidily. One hand is usually lost a frame or two
+ * before the other, so a snapshot taken at the moment the count reaches zero
+ * often holds only one of them and the gesture is missed. Each side is
+ * therefore remembered with a time of its own, and the trigger is both sides
+ * having gone recently with nothing left on screen. Leaving through the top
+ * or bottom never fires it, because neither wrist was near a lateral edge.
+ */
+export class LateralExit {
+  #edge: number;
+  #window: number;
+  #left = -Infinity;
+  #right = -Infinity;
+
+  /** `edge` as a fraction of the width; `window` in milliseconds. */
+  constructor(edge = 0.2, window = 700) {
+    this.#edge = edge;
+    this.#window = window;
+  }
+
+  /** True on the frame the gesture completes, and only that frame. */
+  update(hands: Pt[][], w: number, t: number): boolean {
+    for (const lm of hands) {
+      if (lm.length < 21) continue;
+      const x = lm[WRIST].x;
+      if (x < w * this.#edge) this.#left = t;
+      else if (x > w * (1 - this.#edge)) this.#right = t;
+    }
+    // A hand still on screen means the pair has not left yet.
+    if (hands.length > 0) return false;
+    const since = t - this.#window;
+    if (this.#left < since || this.#right < since) return false;
+    this.#left = this.#right = -Infinity; // spent, so it fires once
+    return true;
+  }
+}
+
+/**
+ * Thumb and index tips brought together, and the point between them. Measured
+ * against the palm, so it reads the same near the camera or far from it.
+ */
+export function pinch(lm: Pt[], shut = 0.45): Pt | null {
+  if (lm.length < 21) return null;
+  const a = lm[THUMB_TIP];
+  const b = lm[INDEX_TIP];
+  const palm = palmOf(lm);
+  if (palm < 1 || Math.hypot(a.x - b.x, a.y - b.y) > palm * shut) return null;
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+/**
+ * Two hands brought together. The gap runs through a Latch so a hand
+ * hovering at the threshold cannot rattle off a dozen claps, and the closing
+ * edge is what fires rather than the state — a clap is an event, and holding
+ * your hands together is not a dozen of them.
+ */
+export class Clap {
+  #latch = new Latch(0.62, 0.38);
+  #shut = false;
+  #span: number;
+
+  /** How far apart, in palm lengths, still counts as open. */
+  constructor(span = 2.2) {
+    this.#span = span;
+  }
+
+  /** True on the frame the hands meet, and only that frame. */
+  update(hands: Pt[][]): boolean {
+    const [a, b] = hands;
+    if (!a || !b || a.length < 21 || b.length < 21) {
+      this.#latch.update(0);
+      this.#shut = false;
+      return false;
+    }
+    const palm = (palmOf(a) + palmOf(b)) / 2;
+    const gap = Math.hypot(a[WRIST].x - b[WRIST].x, a[WRIST].y - b[WRIST].y);
+    const near = palm < 1 ? 0 : 1 - Math.min(1, gap / (palm * this.#span));
+    const shut = this.#latch.update(near);
+    const clap = shut && !this.#shut;
+    this.#shut = shut;
+    return clap;
+  }
+}
