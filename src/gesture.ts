@@ -231,13 +231,36 @@ export class LateralExit {
  * Thumb and index tips brought together, and the point between them. Measured
  * against the palm, so it reads the same near the camera or far from it.
  */
-export function pinch(lm: Pt[], shut = 0.45): Pt | null {
+export function pinch(lm: Pt[], shut = 0.35): Pt | null {
   if (lm.length < 21) return null;
   const a = lm[THUMB_TIP];
   const b = lm[INDEX_TIP];
   const palm = palmOf(lm);
   if (palm < 1 || Math.hypot(a.x - b.x, a.y - b.y) > palm * shut) return null;
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+/**
+ * One finger out and the thumb clear of it: the "what is that" gesture.
+ *
+ * Deliberately the opposite of a pinch. A pinch needs the thumb and index tips
+ * together and this needs them apart, so no hand can be both and no hand can
+ * pass from one to the other without the gap it is measured on going through
+ * the middle — which is what stops a two-handed gesture from firing a
+ * one-handed one at each end of itself.
+ */
+export function point(lm: Pt[], clear = 0.7): Pt | null {
+  if (lm.length < 21) return null;
+  const palm = palmOf(lm);
+  if (palm < 1) return null;
+  const tip = lm[INDEX_TIP];
+  if (Math.hypot(tip.x - lm[THUMB_TIP].x, tip.y - lm[THUMB_TIP].y) < palm * clear) return null;
+  // Index reaching past its own middle joint, the other three curled in.
+  if (d2(lm[WRIST], tip) <= d2(lm[WRIST], lm[6])) return null;
+  for (const t of [12, 16, 20]) {
+    if (d2(lm[WRIST], lm[t]) > d2(lm[WRIST], lm[t - 2])) return null;
+  }
+  return { x: tip.x, y: tip.y };
 }
 
 /**

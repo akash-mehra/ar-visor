@@ -111,27 +111,31 @@ layer out from under it. Two gestures still work:
 
 | gesture | |
 |---|---|
-| **one pinch** | names the bone under your fingertips |
-| **two pinches** | zoom, by pulling them apart or together |
-| **two pinches, held still on one bone** | lifts that bone out on its own |
+| **point at a bone** | names it |
+| **keep pointing at it** | lifts that bone out on its own |
+| **pinch with both hands** | zoom, by pulling them apart or together |
 | **clap** | one step back |
 
-How many hands are pinching is what keeps these out of each other's way: two
-pinched hands can only be a zoom or a grab, one can only be a question, and a
-clap needs both hands open — so pulling the zoom shut cannot slam the door on
-the way out. A zoom picks up where the last one left off rather than snapping
-back to life size each time you re-grab.
+**One hand points, two hands pinch, and nothing does both.** Counting pinched
+hands was the wrong split: a two-handed pinch passes through a one-handed one
+at each end of itself, so every zoom named a bone on the way in and named
+another on the way out. Shape cannot overlap the way a count does. A point
+wants the thumb clear of the index and a pinch wants it against, so no hand
+satisfies both and none gets from one to the other without the gap they are
+measured on crossing the middle. The band between the two thresholds is where
+neither fires — something to pass through, not to land in.
 
-Holding is what tells a grab from a zoom. A zoom changes the distance between
-the two pinches by definition, so a distance that has not moved for half a
-second is not one. Both run at once and cost nothing for it, because a zoom
-that holds still does not zoom.
+Naming and lifting a bone out are then the same gesture held longer: point to
+read the name, keep pointing at the same bone and it comes out on its own.
+Nothing extra to learn, and the old held-still-versus-zoom arbitration goes
+with it. A zoom still picks up where the last one left off rather than snapping
+back to life size each time you re-grab.
 
 ## One bone on its own
 
 Lifting a bone out gives it the screen to itself, sized to its own extents
-rather than the skull's. Two pinches still zoom. **One pinch grabs it and
-turns it** — a drag across the screen is a full revolution, and the canvas is
+rather than the skull's. Both pinches still zoom. **Point and move to turn
+it** — a drag across the screen is a full revolution, and the canvas is
 mirrored, so the landmark delta is negated to put the turn the way round the
 hand expects.
 
@@ -144,11 +148,10 @@ against.
 A clap steps back one level rather than all the way out: a single bone returns
 to the skull it came from, and the skull returns to the hand-held frame.
 
-The pinch casts a ray into the scene at the point between thumb and index.
-Landmarks and the 3D are both in unmirrored video space — the mirror is
-applied once, to the blit — so the pinch point needs no flipping before it is
-cast. A pinch that catches nothing clears the label rather than leaving a
-stale reading on screen.
+The point casts a ray into the scene at the index fingertip. Landmarks and the
+3D are both in unmirrored video space — the mirror is applied once, to the
+blit — so the point needs no flipping before it is cast. Pointing at nothing
+clears the label rather than leaving a stale reading on screen.
 
 Bone names come off `userData`, not `Object3D.name`: GLTFLoader runs node
 names through `sanitizeNodeName`, which turns spaces into underscores and
