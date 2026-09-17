@@ -317,10 +317,74 @@ export class PinchZoom {
     this.#ref = 0;
   }
 
+  /** Set from outside — a slider — and let the next grab carry on from it. */
+  set(z: number): void {
+    this.#scale = Math.min(this.#max, Math.max(this.#min, z));
+    this.#ref = 0;
+  }
+
   /** Back to life size. */
   reset(): void {
     this.#ref = 0;
     this.#base = 1;
     this.#scale = 1;
   }
+}
+
+/**
+ * Two blinks in quick succession, as a hands-free shutter.
+ *
+ * Counted on the eye reopening rather than closing: that is the edge that
+ * means a blink completed, and it keeps a long thoughtful close from reading
+ * as the first half of a pair. The clock resets on the second, so holding a
+ * flutter does not fire over and over.
+ *
+ * `shut` is the already-debounced blink, not a raw blendshape score.
+ */
+export class DoubleBlink {
+  #gap: number;
+  #last = -Infinity;
+  #was = false;
+
+  /** How long the second blink has to arrive, in milliseconds. */
+  constructor(gap = 700) {
+    this.#gap = gap;
+  }
+
+  update(shut: boolean, t: number): boolean {
+    const done = this.#was && !shut;
+    this.#was = shut;
+    if (!done) return false;
+    if (t - this.#last <= this.#gap) {
+      this.#last = -Infinity;
+      return true;
+    }
+    this.#last = t;
+    return false;
+  }
+}
+
+/**
+ * Where a canvas pixel lands on screen, given `object-fit: cover`.
+ *
+ * The canvas is the camera's size, the viewport is the tablet's, and cover
+ * scales to fill and crops the overflow evenly. Anything positioned in CSS
+ * against something drawn in the canvas — a label pointing at a bone, say —
+ * has to go through this or it drifts as soon as the two aspect ratios differ.
+ */
+export type Fit = { scale: number; x: number; y: number };
+
+export function coverFit(cw: number, ch: number, vw: number, vh: number): Fit {
+  if (cw <= 0 || ch <= 0) return { scale: 1, x: 0, y: 0 };
+  const scale = Math.max(vw / cw, vh / ch);
+  return { scale, x: (vw - cw * scale) / 2, y: (vh - ch * scale) / 2 };
+}
+
+/**
+ * A landmark-space point in CSS pixels. The canvas is drawn mirrored, so x is
+ * measured back from the far edge — landmarks are in the camera's frame, and
+ * what the viewer sees is its reflection.
+ */
+export function onScreen(p: Pt, cw: number, f: Fit): Pt {
+  return { x: f.x + (cw - p.x) * f.scale, y: f.y + p.y * f.scale };
 }

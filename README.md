@@ -155,6 +155,47 @@ names through `sanitizeNodeName`, which turns spaces into underscores and
 deletes dots, so `Parietal bone.l` arrives as `Parietal_bonel` — and by then
 the side is an ordinary letter at the end of a word.
 
+## The chrome
+
+The camera is the page; everything else floats over it in glass. That is not
+decoration — the controls sit on moving video and have to stay legible against
+a sunlit window one second and a dark room the next, so each panel carries its
+own opaque floor under the blur rather than letting the feed set the contrast,
+and the blur is paired with saturation, which is what pulls colour up out of
+the picture behind and makes the surface read as a material. Measured against
+mid-grey video: 10.6:1 for the primary text, 7.5:1 for the secondary.
+
+**The bone label is an atlas leader, not a speech bubble.** An arrow touches
+the bone and the label stands off it, so the thing being named is never
+underneath the thing naming it. It follows the bone rather than the fingertips
+that named it, which keeps it attached while the view turns; near the right
+edge the whole leader mirrors rather than letting the label overflow. Getting
+it there means crossing from canvas pixels to CSS pixels, through both the
+mirror and the `object-fit: cover` crop — `coverFit` and `onScreen` do that,
+and they are checked, because a label that drifts is very hard to debug by eye.
+
+**The bone list** is the way in for anyone who cannot hold both hands up, and
+the only way to reach a bone buried too deep in the skull to pinch. Each row
+carries the bone's own colour, read off the model's material rather than
+assigned here.
+
+**The zoom slider travels in octaves.** Zoom is a ratio: half size and double
+size are the same distance from life size. A linear track over the same range
+buries 1x a fifth of the way up and spends four fifths of its travel on
+magnification nobody asked for. The slider and the two-hand pinch drive the
+same number, so moving either moves the other.
+
+**The scope** is the tracker's own view — wireframe, hand skeletons, and the
+frame's four anchors, with nothing drawn on top. It is the quickest way to see
+whether a gesture failed because the pose was wrong or because tracking lost
+the hand.
+
+**Recording** writes webm from `canvas.captureStream`, so it captures what the
+canvas shows rather than the raw camera. A fast double blink is the shutter,
+counted on the eye reopening rather than closing — that is the edge that means
+a blink completed, and it keeps a long thoughtful close from reading as half a
+pair. The hands are usually busy holding the thing worth recording.
+
 ## Dev
 
 ```bash
