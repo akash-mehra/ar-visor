@@ -2,6 +2,7 @@ import {
   AmbientLight,
   Box3,
   DirectionalLight,
+  Euler,
   Group,
   Matrix4,
   Mesh,
@@ -51,8 +52,14 @@ export type Skull = {
   setExplode(t: number): void;
   /** Multiplies the separated view's size. 1 is fit-to-screen. */
   setZoom(z: number): void;
-  /** The bone under a canvas point, named for reading. */
-  nameAt(x: number, y: number): string | null;
+  /** Which bone is under a canvas point, or -1. */
+  pickAt(x: number, y: number): number;
+  /** A bone's name, for reading. */
+  nameOf(i: number): string;
+  /** Show one bone on its own, or -1 for the whole skull. */
+  isolate(i: number): void;
+  /** Turned by hand rather than by the head, once a bone is on its own. */
+  setSpin(yaw: number, pitch: number): void;
   draw: Renderer;
 };
 
@@ -85,7 +92,10 @@ export async function loadSkull(url: string, dracoPath: string): Promise<Skull> 
     bones: 0,
     setExplode: () => {},
     setZoom: () => {},
-    nameAt: () => null,
+    pickAt: () => -1,
+    nameOf: () => '',
+    isolate: () => {},
+    setSpin: () => {},
     draw: () => {}
   };
 
@@ -118,7 +128,10 @@ export async function loadSkull(url: string, dracoPath: string): Promise<Skull> 
   const box = new Box3().setFromObject(gltf.scene);
   const centre = box.getCenter(new Vector3());
   const size = box.getSize(new Vector3());
-  gltf.scene.position.sub(centre);
+  // Where the scene sits for every view but a single bone, which re-centres
+  // on the bone instead.
+  const rest = centre.clone().negate();
+  gltf.scene.position.copy(rest);
 
   // Each bone separates straight out from the middle of the skull. Taking the
   // direction from its own geometry means the file needs no authored explode
@@ -191,28 +204,49 @@ export async function loadSkull(url: string, dracoPath: string): Promise<Skull> 
     zoom = z > 0 ? z : 1;
   };
 
+  let single = -1;
+  state.isolate = (i) => {
+    single = i;
+    parts.forEach((p, k) => (p.mesh.visible = i < 0 || k === i));
+  };
+  state.nameOf = (i) => (parts[i] ? label(parts[i].mesh) : '');
+
+  let spinYaw = 0;
+  let spinPitch = 0;
+  state.setSpin = (yaw, pitch) => {
+    spinYaw = yaw;
+    spinPitch = pitch;
+  };
+
   // Pinching reads the bone under the fingertips. Landmarks and the 3D are
   // both in unmirrored video space — the mirror is applied once, to the blit —
   // so a pinch point needs no flipping before it is cast.
   const meshes = parts.map((p) => p.mesh);
   const ray = new Raycaster();
   const ndc = new Vector2();
-  state.nameAt = (x, y) => {
-    if (!gl.width || !gl.height) return null;
+  state.pickAt = (x, y) => {
+    if (!gl.width || !gl.height) return -1;
     ndc.set((x / gl.width) * 2 - 1, -(y / gl.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
-    const hit = ray.intersectObjects(meshes, false)[0];
-    return hit ? label(hit.object as Mesh) : null;
+    // A hidden bone is still in the scene, and the raycaster does not care.
+    const hit = ray.intersectObjects(meshes.filter((m) => m.visible), false)[0];
+    return hit ? meshes.indexOf(hit.object as Mesh) : -1;
   };
 
   const basisMatrix = new Matrix4();
+  const spinEuler = new Euler();
+  const centreOf = new Vector3();
+  const halfOf = new Vector3();
   const vRight = new Vector3();
   const vUp = new Vector3();
   const vFwd = new Vector3();
 
   state.draw = (ctx, lm) => {
     const b = faceBasis(lm as Pt[]);
-    if (!b || b.width < 1) return;
+    // One bone on its own is turned by hand, so it keeps drawing whether or
+    // not a face is still in shot — which is the point of having taken it out
+    // of the skull. Every other view is posed on the head and needs one.
+    if (single < 0 && (!b || b.width < 1)) return;
 
     const w = ctx.canvas.width;
     const h = ctx.canvas.height;
@@ -231,27 +265,43 @@ export async function loadSkull(url: string, dracoPath: string): Promise<Skull> 
     // because a view of a skull in pieces is no longer a view of a face and
     // scaling it to one only means standing closer throws the far bones off
     // the edge. Everything between is the blend, so the move is the spread.
-    const travel = explode * fullTravel;
-    const reach = restReach + (apartReach - restReach) * explode;
-    const onFace = (b.width * WIDTH_RATIO) / size.x;
-    const onScreen = (Math.min(w, h) * STUDY_FILL * zoom) / (reach * 2);
-    root.scale.setScalar(onFace + (onScreen - onFace) * explode);
+    if (single >= 0) {
+      // One bone, middle of the screen, sized to itself and turned by the
+      // hand that grabbed it. Re-centring moves the scene rather than the
+      // mesh, so the bone's own geometry is never touched.
+      const p = parts[single];
+      p.box.getCenter(centreOf);
+      halfOf.subVectors(p.box.max, p.box.min).multiplyScalar(0.5);
+      const r = Math.max(halfOf.x, halfOf.y, halfOf.z);
+      gltf.scene.position.copy(rest).sub(centreOf);
+      root.scale.setScalar((Math.min(w, h) * STUDY_FILL * zoom) / (r * 2 || 1));
+      root.quaternion.setFromEuler(spinEuler.set(spinPitch, spinYaw, 0));
+      root.position.set(0, 0, 0);
+      for (const q of parts) q.mesh.position.set(0, 0, 0);
+    } else {
+      gltf.scene.position.copy(rest);
+      const travel = explode * fullTravel;
+      const reach = restReach + (apartReach - restReach) * explode;
+      const onFace = (b!.width * WIDTH_RATIO) / size.x;
+      const onScreen = (Math.min(w, h) * STUDY_FILL * zoom) / (reach * 2);
+      root.scale.setScalar(onFace + (onScreen - onFace) * explode);
 
-    vRight.set(b.right.x, b.right.y, b.right.z);
-    vUp.set(b.up.x, b.up.y, b.up.z);
-    vFwd.set(b.forward.x, b.forward.y, b.forward.z);
-    root.quaternion.setFromRotationMatrix(basisMatrix.makeBasis(vRight, vUp, vFwd));
+      vRight.set(b!.right.x, b!.right.y, b!.right.z);
+      vUp.set(b!.up.x, b!.up.y, b!.up.z);
+      vFwd.set(b!.forward.x, b!.forward.y, b!.forward.z);
+      root.quaternion.setFromRotationMatrix(basisMatrix.makeBasis(vRight, vUp, vFwd));
 
-    // Landmark space is canvas pixels with y down; the camera is centred with
-    // y up, so the origin moves to the middle and y flips. Fully separated the
-    // skull sits at the middle of the screen instead, which is also what makes
-    // a bone stay still long enough to be pinched.
-    root.position.set(b.centre.x - w / 2, b.centre.y + h / 2, 0);
-    root.position.addScaledVector(vFwd, -FORWARD_OFFSET * b.width);
-    root.position.addScaledVector(vUp, UP_OFFSET * b.width);
-    root.position.multiplyScalar(1 - explode);
+      // Landmark space is canvas pixels with y down; the camera is centred
+      // with y up, so the origin moves to the middle and y flips. Fully
+      // separated the skull sits at the middle of the screen instead, which
+      // is also what makes a bone stay still long enough to be pinched.
+      root.position.set(b!.centre.x - w / 2, b!.centre.y + h / 2, 0);
+      root.position.addScaledVector(vFwd, -FORWARD_OFFSET * b!.width);
+      root.position.addScaledVector(vUp, UP_OFFSET * b!.width);
+      root.position.multiplyScalar(1 - explode);
 
-    for (const p of parts) p.mesh.position.copy(p.out).multiplyScalar(travel);
+      for (const p of parts) p.mesh.position.copy(p.out).multiplyScalar(travel);
+    }
 
     renderer.render(scene, camera);
     ctx.drawImage(gl, 0, 0, w, h);

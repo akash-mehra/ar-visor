@@ -21,7 +21,10 @@ and the person stay, and the layer is drawn onto the face with the eyes and
 mouth left open so they read through it. **Displace** lays a translucent dark sheet over the room
 inside the frame and covers the whole face oval, so only the layer reads. Skin
 is exempt: it is the bare camera, so there is nothing to read against. Bone
-replaces the face outright either way, so the mode does not reach it.
+replaces the face outright either way, so the mode does not reach it — and it
+always lays its own black down regardless, because a colour-coded skull over a
+lit room is mostly room. That black deepens once the frame is the whole
+screen, where there is nothing behind it worth keeping.
 
 The anatomy palette is three layers deep. How many fingers you
 hold up picks one:
@@ -110,13 +113,36 @@ layer out from under it. Two gestures still work:
 |---|---|
 | **one pinch** | names the bone under your fingertips |
 | **two pinches** | zoom, by pulling them apart or together |
-| **clap** | back to the hand-held frame |
+| **two pinches, held still on one bone** | lifts that bone out on its own |
+| **clap** | one step back |
 
-How many hands are pinching is what keeps the three out of each other's way:
-two pinched hands can only be a zoom, one can only be a question, and a clap
-needs both hands open — so pulling the zoom shut cannot slam the door on the
-way out. A zoom picks up where the last one left off rather than snapping back
-to life size each time you re-grab.
+How many hands are pinching is what keeps these out of each other's way: two
+pinched hands can only be a zoom or a grab, one can only be a question, and a
+clap needs both hands open — so pulling the zoom shut cannot slam the door on
+the way out. A zoom picks up where the last one left off rather than snapping
+back to life size each time you re-grab.
+
+Holding is what tells a grab from a zoom. A zoom changes the distance between
+the two pinches by definition, so a distance that has not moved for half a
+second is not one. Both run at once and cost nothing for it, because a zoom
+that holds still does not zoom.
+
+## One bone on its own
+
+Lifting a bone out gives it the screen to itself, sized to its own extents
+rather than the skull's. Two pinches still zoom. **One pinch grabs it and
+turns it** — a drag across the screen is a full revolution, and the canvas is
+mirrored, so the landmark delta is negated to put the turn the way round the
+hand expects.
+
+The head stops driving it here. It is an object being turned by hand, so it
+keeps drawing whether or not a face is still in shot — which is the point of
+having taken it out of the skull in the first place. Every renderer already
+guards on landmark count, so a frame with no face is simply nothing to pose
+against.
+
+A clap steps back one level rather than all the way out: a single bone returns
+to the skull it came from, and the skull returns to the hand-held frame.
 
 The pinch casts a ray into the scene at the point between thumb and index.
 Landmarks and the 3D are both in unmirrored video space — the mirror is
