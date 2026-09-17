@@ -84,21 +84,25 @@ html, body {
 
 /* ---------------------------------------------------------------- dock --- */
 #dock {
+  /* Both insets, then auto margins: centred on `left: 50%` alone the dock can
+     only ever be half the viewport wide, which cut the last pill off once
+     there were six of them. */
   position: fixed;
-  left: 50%;
+  inset-inline: 12px;
+  width: max-content;
+  margin-inline: auto;
   bottom: calc(var(--safe-b) + 18px);
   z-index: 4;
   display: flex;
   gap: 8px;
   padding: 7px;
-  transform: translateX(-50%);
   border-radius: var(--r-pill);
   background: var(--glass);
   -webkit-backdrop-filter: var(--frost);
   backdrop-filter: var(--frost);
   border: 1px solid var(--edge);
   box-shadow: var(--lift), inset 0 1px 0 var(--spec);
-  max-width: calc(100vw - 24px);
+  max-width: 100%;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -140,6 +144,12 @@ html, body {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+/* One icon, two arrow sets: the pressed state swaps which one shows rather
+   than swapping the markup under it. */
+#full .out,
+#full[aria-pressed='true'] .in { display: none; }
+#full[aria-pressed='true'] .out { display: inline; }
 
 .rec .dot {
   width: 11px;

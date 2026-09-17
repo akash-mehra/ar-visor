@@ -274,5 +274,65 @@ export function initUi(canvas: HTMLCanvasElement, hooks: Hooks): Ui {
 
   recBtn.addEventListener('click', () => ui.toggleRecord());
 
+  // ------------------------------------------ full screen · install ---
+  /*
+   * Both are the platform's own: the Fullscreen API for the tab, and a
+   * manifest plus `beforeinstallprompt` for the home screen. Nothing is
+   * cached offline — the models and the wasm come from a CDN — so an
+   * installed copy is a launcher that starts without browser chrome, not an
+   * app that runs without a network.
+   */
+  const fullBtn = $<HTMLButtonElement>('full');
+  const fullLabel = $('fullLabel');
+  const installBtn = $<HTMLButtonElement>('install');
+
+  // An installed window is already fullscreen by manifest, so neither button
+  // appears there: one would have nothing to do and the other nothing to add.
+  // Read once, at startup, rather than watched: browsers disagree about
+  // whether `display-mode: fullscreen` also matches the Fullscreen API, and
+  // one that says yes would hide the button the moment it was used — taking
+  // the way back out with it. Before any call of ours, a match can only mean
+  // the app was launched installed.
+  const installed = matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
+  fullBtn.hidden = installed || typeof document.documentElement.requestFullscreen !== 'function';
+
+  fullBtn.addEventListener('click', async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+    } catch {
+      // Refused — no gesture credit left, or the platform will not. The
+      // button keeps working; there is nothing to report.
+    }
+  });
+  // The state belongs to the document, not the button: Escape and the system
+  // back gesture both leave fullscreen without passing through the click.
+  document.addEventListener('fullscreenchange', () => {
+    const on = document.fullscreenElement !== null;
+    fullBtn.setAttribute('aria-pressed', String(on));
+    fullLabel.textContent = on ? 'Exit' : 'Full screen';
+  });
+
+  // Held rather than fired: the browser offers the prompt at its own moment,
+  // which is usually before there is anything on screen worth installing.
+  let install: (Event & { prompt(): Promise<unknown> }) | null = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    install = e as Event & { prompt(): Promise<unknown> };
+    installBtn.hidden = installed;
+  });
+  installBtn.addEventListener('click', async () => {
+    const p = install;
+    if (!p) return;
+    // A prompt is single-use, spent whichever way the answer goes.
+    install = null;
+    installBtn.hidden = true;
+    await p.prompt();
+  });
+  window.addEventListener('appinstalled', () => {
+    install = null;
+    installBtn.hidden = true;
+  });
+
   return ui;
 }
